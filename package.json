@@ -5,13 +5,14 @@
   "type": "module",
   "description": "上交所 ETF 份额趋势 × 上证指数叠加（Vite 前后端一体化）",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.5"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/prod.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",

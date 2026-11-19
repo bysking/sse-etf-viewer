@@ -13,23 +13,23 @@ fs.mkdirSync(CACHE_DIR, { recursive: true })
 const QUERY_URL = process.env.SSE_QUERY_URL || 'https://query.sse.com.cn/commonQuery.do'
 const SHARE_SQLID = 'COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L'
 const SHARE_REFERER = 'https://www.sse.com.cn/market/funddata/volumn/etfvolumn/'
-const YUNHQ_BASES = (process.env.SSE_YUNHQ_URLS || 'http://yunhq.sse.com.cn:32041,https://yunhq.sse.com.cn:32042')
+export const YUNHQ_BASES = (process.env.SSE_YUNHQ_URLS || 'http://yunhq.sse.com.cn:32041,https://yunhq.sse.com.cn:32042')
   .split(',')
   .map((s) => s.trim())
-const INDEX_REFERER = 'https://www.sse.com.cn/market/price/trends/'
-const UA =
+export const INDEX_REFERER = 'https://www.sse.com.cn/market/price/trends/'
+export const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
 // ---------------------------------------------------------------- 日期（均为 YYYY-MM-DD 字符串）
 export const todayCST = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
 const utc = (s) => new Date(s + 'T00:00:00Z')
-const addDays = (s, n) => {
+export const addDays = (s, n) => {
   const d = utc(s)
   d.setUTCDate(d.getUTCDate() + n)
   return d.toISOString().slice(0, 10)
 }
 const isWeekend = (s) => [0, 6].includes(utc(s).getUTCDay())
-const diffDays = (a, b) => Math.round((utc(a) - utc(b)) / 864e5)
+export const diffDays = (a, b) => Math.round((utc(a) - utc(b)) / 864e5)
 function weekdays(a, b) {
   const out = []
   for (let d = a; d <= b; d = addDays(d, 1)) if (!isWeekend(d)) out.push(d)
@@ -38,7 +38,7 @@ function weekdays(a, b) {
 
 // ---------------------------------------------------------------- HTTP
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const stripJsonp = (t) => {
+export const stripJsonp = (t) => {
   t = t.trim()
   const m = t.match(/^[\w$.]+\(([\s\S]*)\)\s*;?$/)
   return m ? m[1] : t
@@ -66,7 +66,7 @@ function getOnce(url, referer, timeout) {
   })
 }
 
-async function httpGet(url, referer, tries = 3) {
+export async function httpGet(url, referer, tries = 3) {
   let last
   for (let i = 0; i < tries; i++) {
     try {
