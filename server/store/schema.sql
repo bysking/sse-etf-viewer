@@ -117,6 +117,12 @@ CREATE TABLE IF NOT EXISTS notify_log (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_signals_strategy_date
   ON signals(strategy_id, detected_at);
 CREATE INDEX IF NOT EXISTS idx_orders_status

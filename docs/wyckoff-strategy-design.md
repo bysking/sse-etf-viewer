@@ -260,6 +260,7 @@ src/
   - 持续 `>= minBars`（默认 20）；
   - 收盘突破边界 `breakAtr`（默认 0.3 ATR）后区间失效；
   - `rangeId = "R-" + 区间起始日`，事件绑定到区间。
+- **区间方向推断**：pivot 区间用起点之前 `sideLookbackBars=60` 根的涨跌幅判断方向：≤ -`sideMinReturn`（默认 5%）为吸筹，≥ +5% 为派发，否则保持 neutral。避免所有非 SC/BC 种子区间都因 `neutral` 而跳过 Spring / UTAD / SOW。
 - **相对强弱**：`close / benchmarkClose` 的 N 日动量；用于区间内的强弱确认（可选）。
 - **周线背景**：日 K 重采样为周 K，只取**上一完整周**：
   - `weeklyTrend`（收盘相对 MA30 上/下）；
@@ -271,12 +272,12 @@ src/
 
 | 事件 | 可计算定义（参数默认值） | 确认 / 失效 |
 | --- | --- | --- |
-| **SC** 卖出高潮 | 创 `lookback=60` 日新低；`volZ>=1.5`；`spreadAtr>=1.2`；`closePos>=0.4` | SC 当日记录；需 AR 确认区间上沿；失效位 = SC 低点 |
-| **AR** 自动反弹 | SC 后 `maxBars=10` 内，从 SC 低点反弹 `>=1.5 ATR` | 反弹高点作为区间上沿候选 |
+| **SC** 卖出高潮 | 创 `lookback=60` 日新低；`volZ>=1.2`；`spreadAtr>=1.0`；`closePos>=0.4` | SC 当日记录；需 AR 确认区间上沿；失效位 = SC 低点 |
+| **AR** 自动反弹 | SC 后 `maxBars=15` 内，从 SC 低点反弹 `>=1.2 ATR` | 反弹高点作为区间上沿候选 |
 | **ST** 二次测试 | 回踩 SC 低点 ±`0.5 ATR`；量能低于 SC；收盘守住 SC 低点 | 确认区间下沿 |
-| **Spring** 弹簧 | 最低价跌破区间下沿 `<=0.5 ATR`；`confirmBars=3` 内收盘回到区间内 | `occurredAt` = 破位 bar；`detectedAt` = 收回 bar；失效位 = Spring 低点 |
+| **Spring** 弹簧 | 最低价跌破区间下沿 `<=1.0 ATR`；`confirmBars=5` 内收盘回到区间内 | `occurredAt` = 破位 bar；`detectedAt` = 收回 bar；失效位 = Spring 低点 |
 | **Test** 测试 | Spring 后回踩 Spring 低点附近，量能低于 Spring | 低点 = 二次防守位 |
-| **UTAD** 派发后上冲 | 最高价突破区间上沿 `<=0.5 ATR`；`3` 根内收盘回到区间内，通常放量 | `occurredAt` = 突破 bar；`detectedAt` = 收回 bar；失效位 = UTAD 高点 |
+| **UTAD** 派发后上冲 | 最高价突破区间上沿 `<=1.0 ATR`；`5` 根内收盘回到区间内，通常放量 | `occurredAt` = 突破 bar；`detectedAt` = 收回 bar；失效位 = UTAD 高点 |
 | **SOS** 强势信号 | 阳线；`spreadAtr>=1.2`；`closePos>=0.7`；`volZ>=0.5`；收盘突破区间上沿 `>=0.3 ATR` | 收盘确认；突破位转支撑 |
 | **LPS** 最后支撑 | SOS 后缩量回踩，回撤 `<=1.0 ATR`，守住突破位 | 回踩低点 = 止损位 |
 | **SOW** 弱势信号 | 阴线；`spreadAtr>=1.2`；`closePos<=0.3`；`volZ>=1.0`；收盘跌破区间下沿 `>=0.3 ATR` | 收盘确认 |
@@ -287,6 +288,7 @@ src/
 - **BC / PSY / UT** 与 SC / PS / ST 对称，v1 一并实现（派发侧）。
 - **努力 vs 结果**作为确认证据，不单独触发交易。
 - 对 ETF **只做多**：UTAD / SOW / LPSY 只产生离场或减仓信号，不产生做空信号。
+- 以上默认值于 2026-11-19 用 4 只 ETF、10 年训练/验证段校准，并用上证指数 + 7 只未参与校准的 ETF 做样本外检验；SOS/SOW 的放宽在样本外变差，因此保持旧阈值。详见 `docs/wyckoff-calibration-2026-11-19.md`。样本量仍偏小，建议每季度复跑。
 - 所有阈值、确认根数、容差均写入策略配置，回测与监控共用。
 
 ### 6.5 L4 阶段状态机（简化）
@@ -376,13 +378,15 @@ neutral
   },
   "wyckoff": {
     "swing":  { "atrPeriod": 14, "atrMult": 1.5, "confirmBars": 2 },
-    "range":  { "minBars": 20, "maxWidthAtr": 3.0, "minTouches": 2, "breakAtr": 0.3 },
+    "range":  { "minBars": 20, "maxWidthAtr": 3.0, "minTouches": 2, "breakAtr": 0.3,
+                "sideLookbackBars": 60, "sideMinReturn": 0.05 },
     "volume": { "maPeriod": 20, "zWindow": 60, "highZ": 1.5, "lowZ": -0.5 },
-    "sc":     { "lookback": 60, "volZ": 1.5, "spreadAtr": 1.2, "closePos": 0.4 },
-    "ar":     { "maxBars": 10, "reboundAtr": 1.5 },
+    "sc":     { "lookback": 60, "volZ": 1.2, "spreadAtr": 1.0, "closePos": 0.4 },
+    "bc":     { "lookback": 60, "volZ": 1.2, "spreadAtr": 1.0, "closePos": 0.6 },
+    "ar":     { "maxBars": 15, "reboundAtr": 1.2 },
     "st":     { "toleranceAtr": 0.5, "volBelowSc": true },
-    "spring": { "maxBreakAtr": 0.5, "confirmBars": 3 },
-    "utad":   { "maxBreakAtr": 0.5, "confirmBars": 3 },
+    "spring": { "maxBreakAtr": 1.0, "confirmBars": 5 },
+    "utad":   { "maxBreakAtr": 1.0, "confirmBars": 5 },
     "sos":    { "spreadAtr": 1.2, "closePos": 0.7, "volZ": 0.5, "breakAtr": 0.3 },
     "sow":    { "spreadAtr": 1.2, "closePos": 0.3, "volZ": 1.0, "breakAtr": 0.3 },
     "lps":    { "maxPullbackAtr": 1.0, "volBelowMa": true },
@@ -936,8 +940,21 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 
 ---
 
+## 19. AI 助手与策略生成
+
+- 支持任意 **OpenAI-compatible chat/completions** 端点：`baseUrl`、`model`、可选 `apiKey`、`temperature`、`maxTokens`；配置只存服务端，接口返回脱敏。
+- 新增「AI 助手」页：
+  - 基于 `code + 区间 + 可选份额流` 构建紧凑上下文（阶段、区间、最近事件、事件研究、最近 60 根日 K）；
+  - 「分析数据」输出结构化威科夫分析；
+  - 「生成策略」要求 AI 输出 DSL JSON，服务端解析并调用 `validateStrategyConfig` 校验；
+  - 校验通过后可直接 `/api/backtests/quick` 回测，并在页面展示指标、净值、交易。
+- AI 生成策略的约束：只做多、riskBased 必须含 `stopLoss`、`fillAt=nextOpen`、不支持未实现节点；AI 输出只作为数据，不执行任意代码。
+- 新增 `GET /api/strategy-authoring/schema` 与 `docs/ai-strategy-authoring.md`，供未来 AI/外部工具读取契约。
+- 下一步：把 AI 生成的策略保存为不可变版本（draft → validated → active），再接入沙箱 JS 策略。
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | v1.0 | 2026-11-19 | 定稿：Wyckoff 事件层 + 声明式 DSL；日线 + 周线背景；纳入份额流；收盘后日频监控；飞书/Telegram；**规则模拟盘与人工确认盘双账本保留**；微信暂缓。 |
+| v1.1 | 2026-11-19 | 增加 AI 助手：OpenAI-compatible 模型配置、行情上下文分析、AI 生成 DSL 策略、服务端校验与快速回测；新增 AI 策略编写契约。 |

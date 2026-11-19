@@ -8,11 +8,27 @@
 - **空数据填充**：区间内没有数据的交易日按**空值**处理，曲线断开而不补 0（节假日、未上市、请求失败都不影响）。
 - **自动恢复**：刷新页面后自动恢复上次查询的 ETF、时间范围与叠加指数。
 
-## 运行（需要 Node ≥ 18）
+## AI 助手
+
+顶部切换到「AI 助手」，在「模型设置」中填写任意 **OpenAI-compatible chat/completions** 端点：
+
+- `baseUrl`：如 `https://api.deepseek.com`、`https://api.openai.com/v1`、`https://api.moonshot.cn/v1`、`http://127.0.0.1:11434/v1`；
+- `model`：如 `deepseek-chat`、`gpt-4o-mini`、`qwen-plus`；
+- `apiKey`：可选，本地 Ollama 等可留空；
+- `temperature` / `maxTokens` 可按需调整。
+
+助手会基于当前标的、区间、事件与最近日 K 生成分析，或生成 Wyckoff DSL 策略；策略会先通过服务端校验，再可直接回测。API Key 只保存在服务端 SQLite，接口返回脱敏。
+
+也可用环境变量作为无数据库配置时的回退：`AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`、`AI_TEMPERATURE`、`AI_MAX_TOKENS`。
+
+AI 策略编写契约见 `docs/ai-strategy-authoring.md`，也可通过 `GET /api/strategy-authoring/schema` 获取。
+
+## 运行（需要 Node ≥ 22.5）
 
 ```bash
 pnpm install
 pnpm dev             # 开发：http://localhost:5173 （页面 + /api 同一个服务，带热更新）
+pnpm test            # 运行 node:test 测试
 ```
 
 生产使用：

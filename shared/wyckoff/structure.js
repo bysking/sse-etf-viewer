@@ -99,6 +99,23 @@ export function createPivotTracker(bars, atrArr, userConfig = {}) {
   }
 }
 
+/**
+ * 区间方向推断：用区间起点之前 N 根的涨跌幅判断吸筹/派发。
+ * 只影响 pivot 区间，SC/BC 种子区间由事件本身决定方向。
+ */
+export function inferRangeSide(bars, startIndex, rangeCfg = {}) {
+  const lb = rangeCfg.sideLookbackBars ?? 60
+  const minRet = rangeCfg.sideMinReturn ?? 0.05
+  if (!(lb > 0) || startIndex < lb) return 'neutral'
+  const base = Number(bars[startIndex - lb]?.close)
+  const cur = Number(bars[startIndex]?.close)
+  if (!(base > 0) || !Number.isFinite(cur)) return 'neutral'
+  const ret = cur / base - 1
+  if (ret <= -minRet) return 'accumulation'
+  if (ret >= minRet) return 'distribution'
+  return 'neutral'
+}
+
 /** 取某日期所在周的周一（YYYY-MM-DD） */
 export function weekStartOf(date) {
   const d = new Date(date + 'T00:00:00Z')

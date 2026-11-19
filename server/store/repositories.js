@@ -160,6 +160,27 @@ export function insertSignal(signal) {
   }
 }
 
+export function getSetting(key, fallback = null) {
+  const row = getDb().prepare('SELECT value_json FROM settings WHERE key = ?').get(key)
+  if (!row) return fallback
+  try {
+    return JSON.parse(row.value_json)
+  } catch {
+    return fallback
+  }
+}
+
+export function setSetting(key, value) {
+  const ts = now()
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+    )
+    .run(key, JSON.stringify(value ?? null), ts)
+  return value
+}
+
 export function listSignals(strategyId, limit = 100) {
   const rows = getDb()
     .prepare('SELECT * FROM signals WHERE strategy_id = ? ORDER BY detected_at DESC LIMIT ?')

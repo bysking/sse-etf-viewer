@@ -24,3 +24,11 @@ export async function postApi(path, body = {}) {
     body: JSON.stringify(body),
   })
 }
+
+export async function putApi(path, body = {}) {
+  return request(new URL(path, location.origin), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}

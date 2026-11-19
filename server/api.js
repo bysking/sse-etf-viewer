@@ -4,11 +4,15 @@ import { getKline } from './data/kline.js'
 import { getSnap } from './data/snap.js'
 import { getCalendar } from './data/calendar.js'
 import { validateConfig } from '../shared/wyckoff/config.js'
+import { validateStrategyConfig, PHASES } from '../shared/strategy/validate.js'
 import { analyzeWyckoff, seriesToBars } from '../shared/wyckoff/analyzer.js'
 import { eventStudy } from '../shared/wyckoff/eventStudy.js'
 import * as repo from './store/repositories.js'
 import { executeBacktest } from './backtest/service.js'
 import { startJob } from './jobs/queue.js'
+import { publicAiConfig, saveAiConfig, getEffectiveAiConfig, resolveAiConfigForTest } from './ai/config.js'
+import { analyzeMarket, generateStrategy, chatWithContext, testAiConnection } from './ai/service.js'
+import { AiError } from './ai/client.js'
 
 class BadRequest extends Error {}
 class NotFound extends Error {}
@@ -55,9 +59,81 @@ function readJson(req, maxBytes = 2_000_000) {
 function checkStrategyConfig(config) {
   need(config && typeof config === 'object' && !Array.isArray(config), 'config 必须是对象')
   need(isCode(config.symbol), '策略 config.symbol 应为 6 位代码')
-  const errors = validateConfig(config.wyckoff || config)
+  const errors = validateStrategyConfig(config)
   if (errors.length) throw new BadRequest(errors.join('；'))
   return config
+}
+
+function authoringSchema() {
+  return {
+    engine: 'wyckoff-v1',
+    events: ['SC', 'BC', 'AR', 'ST', 'Spring', 'Test', 'UTAD', 'SOS', 'SOW', 'LPS', 'LPSY'],
+    phases: PHASES,
+    conditionTypes: [
+      '{"event":"Spring","withinBars":5,"require":{"closeBackInRange":true}}',
+      '{"phase":{"in":["accumulation_C","accumulation_D"],"minConfidence":0.5}}',
+      '{"weekly":{"phaseIn":["accumulation","markup"],"closeAboveMa":true}}',
+      '{"shareFlow":{"cumulativeDays":3,"gt":0,"requireFresh":true}}',
+      '{"filter":{"fn":"closeAbove","value":true}}',
+      '{"all":[...]} / {"any":[...]} / {"not":{...}}',
+      '{"stopLoss":{"reference":"eventLow","event":"Spring","bufferAtr":0.5}}',
+      '{"stopLoss":{"reference":"rangeLow","bufferAtr":0.5}}',
+    ],
+    execution: {
+      fillAt: 'nextOpen',
+      tPlus1: true,
+      position: { type: 'riskBased', riskPct: 0.01, maxPositionPct: 1 },
+      feeRate: 0.0003,
+      minFee: 5,
+      slippageBps: 2,
+      lotSize: 100,
+      cancelIfInvalidated: true,
+    },
+    constraints: [
+      '只做多，不允许做空',
+      'riskBased 仓位必须包含 stopLoss',
+      'fillAt 只能是 nextOpen',
+      '不支持 takeProfit / trailingStop',
+      '不要使用未列出的字段或指标',
+      'AI 生成策略只能作为 draft，必须通过校验、回测和人工审核',
+    ],
+    example: {
+      schemaVersion: 1,
+      engine: 'wyckoff-v1',
+      name: 'Spring 吸筹反转',
+      symbol: '510300',
+      entry: {
+        all: [
+          { event: 'Spring', withinBars: 5, require: { closeBackInRange: true } },
+          { phase: { in: ['accumulation_C', 'accumulation_D'], minConfidence: 0.5 } },
+        ],
+      },
+      exit: {
+        any: [
+          { event: 'SOS', withinBars: 4 },
+          { stopLoss: { reference: 'eventLow', event: 'Spring', bufferAtr: 0.5 } },
+        ],
+      },
+      execution: {
+        fillAt: 'nextOpen',
+        tPlus1: true,
+        position: { type: 'riskBased', riskPct: 0.01, maxPositionPct: 1 },
+        feeRate: 0.0003,
+        minFee: 5,
+        slippageBps: 2,
+        lotSize: 100,
+        cancelIfInvalidated: true,
+      },
+    },
+  }
+}
+
+function aiRequestBase(body) {
+  const code = need(isCode(body.code) && String(body.code).trim(), '标的代码应为 6 位数字')
+  const end = isoDate(body.end || todayCST(), 'end')
+  const start = isoDate(body.start || addDays(end, -365), 'start')
+  if (start > end) throw bad('开始日期不能晚于结束日期')
+  return { code, start, end, includeShares: Boolean(body.includeShares) }
 }
 
 function summaryOf(analysis) {
@@ -235,10 +311,76 @@ export function apiMiddleware() {
         })
       }
 
+      // ---------------- AI 助手 ----------------
+      if (url.pathname === '/api/ai/config') {
+        if (method === 'GET') return send(200, publicAiConfig())
+        if (method === 'PUT') {
+          const body = await readJson(req)
+          try {
+            return send(200, saveAiConfig(body))
+          } catch (e) {
+            throw new BadRequest(e.message)
+          }
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      if (url.pathname === '/api/ai/test') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const useForm = body && (body.baseUrl || body.model)
+        let aiConfig
+        try {
+          aiConfig = useForm ? resolveAiConfigForTest(body) : getEffectiveAiConfig()
+        } catch (e) {
+          throw new BadRequest(e.message)
+        }
+        if (!aiConfig) throw new BadRequest('请先配置 AI 模型')
+        const r = await testAiConnection({ aiConfig })
+        return send(200, { ok: true, content: r.content, model: r.model })
+      }
+
+      if (url.pathname === '/api/ai/analyze') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const aiConfig = getEffectiveAiConfig()
+        if (!aiConfig) throw new BadRequest('请先配置 AI 模型')
+        const base = aiRequestBase(body)
+        const question = String(body.question || '').slice(0, 2000)
+        return send(200, await analyzeMarket({ aiConfig, ...base, question }))
+      }
+
+      if (url.pathname === '/api/ai/strategy') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const aiConfig = getEffectiveAiConfig()
+        if (!aiConfig) throw new BadRequest('请先配置 AI 模型')
+        const base = aiRequestBase(body)
+        const instructions = String(body.instructions || '').slice(0, 2000)
+        return send(200, await generateStrategy({ aiConfig, ...base, instructions }))
+      }
+
+      if (url.pathname === '/api/ai/chat') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const aiConfig = getEffectiveAiConfig()
+        if (!aiConfig) throw new BadRequest('请先配置 AI 模型')
+        const messages = body.messages
+        if (!Array.isArray(messages) || messages.length < 1 || messages.length > 30) throw bad('messages 必须是 1–30 条')
+        for (const m of messages) {
+          if (!m || !['user', 'assistant'].includes(m.role)) throw bad('messages 仅支持 user / assistant')
+          if (typeof m.content !== 'string' || !m.content.trim() || m.content.length > 8000) throw bad('message content 必须是 1–8000 字符')
+        }
+        const contextText = typeof body.contextText === 'string' ? body.contextText.slice(0, 20000) : ''
+        return send(200, await chatWithContext({ aiConfig, messages, contextText }))
+      }
+
       // ---------------- 固定路由 ----------------
       switch (url.pathname) {
         case '/api/health':
           return send(200, { ok: true })
+        case '/api/strategy-authoring/schema':
+          return send(200, authoringSchema())
         case '/api/search':
           return send(200, await search(q.q || ''))
         case '/api/shares': {

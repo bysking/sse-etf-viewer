@@ -50,6 +50,14 @@ test('回测任务状态流转与 JSON 结果', () => {
   assert.equal(repo.listRuns('s1').length, 1)
 })
 
+test('settings 读写与覆盖', () => {
+  assert.equal(repo.getSetting('missing', 'fallback'), 'fallback')
+  repo.setSetting('ai_config', { model: 'test-model', temperature: 0.3 })
+  assert.equal(repo.getSetting('ai_config').model, 'test-model')
+  repo.setSetting('ai_config', { model: 'next-model' })
+  assert.equal(repo.getSetting('ai_config').model, 'next-model')
+})
+
 test('信号去重：同一唯一键第二次写入返回 null', () => {
   const sig = {
     strategyId: 's1',

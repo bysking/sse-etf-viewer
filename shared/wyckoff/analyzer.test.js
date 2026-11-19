@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeWyckoff, computeShareFlow } from './analyzer.js'
-import { weeklyContext, buildWeeklyBars, weekStartOf } from './structure.js'
+import { weeklyContext, buildWeeklyBars, weekStartOf, inferRangeSide } from './structure.js'
 import { accumulationBars, distributionBars, mk, WYCKOFF_TEST_CONFIG as config } from '../../test-support/fixtures.js'
 
 const eventKey = (e) => `${e.type}|${e.occurredIndex}|${e.detectedIndex}|${e.rangeId ?? '-'}`
@@ -81,6 +81,22 @@ test('周线背景只使用上一完整周', () => {
   assert.equal(fri.weekEnd, bars[9].date)
   assert.equal(weekStartOf(bars[9].date), weekStartOf(bars[5].date))
   assert.equal(buildWeeklyBars(bars).length, 3)
+})
+
+test('区间方向推断：下跌后吸筹、上涨后派发、横盘 neutral', () => {
+  const makeBars = (closes) =>
+    closes.map((c, i) => ({ date: `d${i}`, open: c, high: c + 1, low: c - 1, close: c, volume: 1 }))
+  const down = makeBars(Array.from({ length: 61 }, (_, i) => 100 - i * 0.2))
+  const up = makeBars(Array.from({ length: 61 }, (_, i) => 80 + i * 0.34))
+  const flat = makeBars(Array.from({ length: 61 }, () => 100))
+  assert.equal(inferRangeSide(down, 60, { sideLookbackBars: 60, sideMinReturn: 0.05 }), 'accumulation')
+  assert.equal(inferRangeSide(up, 60, { sideLookbackBars: 60, sideMinReturn: 0.05 }), 'distribution')
+  assert.equal(inferRangeSide(flat, 60, { sideLookbackBars: 60, sideMinReturn: 0.05 }), 'neutral')
+  // 数据不足推断窗口时保持 neutral
+  assert.equal(inferRangeSide(down, 10, { sideLookbackBars: 60, sideMinReturn: 0.05 }), 'neutral')
+  // 未达到阈值
+  const mild = makeBars(Array.from({ length: 61 }, (_, i) => 100 - i * 0.05))
+  assert.equal(inferRangeSide(mild, 60, { sideLookbackBars: 60, sideMinReturn: 0.05 }), 'neutral')
 })
 
 test('份额流对齐与新鲜度', () => {

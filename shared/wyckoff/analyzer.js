@@ -3,7 +3,7 @@
 import { zscore } from '../indicators.js'
 import { mergeConfig } from './config.js'
 import { computeFeatures } from './features.js'
-import { createPivotTracker, weeklyContext } from './structure.js'
+import { createPivotTracker, inferRangeSide, weeklyContext } from './structure.js'
 
 /** API 返回的数组格式 → 引擎使用的对象格式 */
 export function seriesToBars(series) {
@@ -127,6 +127,7 @@ export function analyzeWyckoff(bars, userConfig = {}, options = {}) {
     if (a && a > 0) return a
     return Math.max(1e-9, Number(bars[i].high) - Number(bars[i].low))
   }
+
 
   const setPhase = (p, c) => {
     phase = p
@@ -281,7 +282,7 @@ export function analyzeWyckoff(bars, userConfig = {}, options = {}) {
       if (i - startIndex < cfg.range.minBars) return
       if (high <= low) return
       if ((high - low) / atrAt(i) > cfg.range.maxWidthAtr) return
-      startRange({ high, low, startIndex, side: 'neutral', seededBy: 'pivots' })
+      startRange({ high, low, startIndex, side: inferRangeSide(bars, startIndex, cfg.range), seededBy: 'pivots' })
     }
 
     const detectClimax = () => {

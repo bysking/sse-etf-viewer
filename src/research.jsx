@@ -18,14 +18,15 @@ import {
 } from 'antd'
 import { ExperimentOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, postApi } from './api.js'
-import { echarts, buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } from './researchChart.js'
+import { buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } from './researchChart.js'
 import { PARAM_GROUPS, defaultParams, buildWyckoffConfig } from './wyckoffParams.js'
+import { EChart } from './components/EChart.jsx'
 
 const { RangePicker } = DatePicker
 const { Title, Text } = Typography
 
 const MAX_DAYS = 1826
-const PARAM_KEY = 'sse-etf-wyckoff-params'
+const PARAM_KEY = 'sse-etf-wyckoff-params-v2'
 const PRESETS = [
   { key: '1y', label: '近1年', days: 365 },
   { key: '3y', label: '近3年', days: 1095 },
@@ -110,25 +111,6 @@ function buildStrategy({ code, preset, includeShares, wyckoff }) {
     execution,
     initialCash: 100000,
   }
-}
-
-function EChart({ option, height = 620 }) {
-  const ref = useRef(null)
-  const inst = useRef(null)
-  useEffect(() => {
-    inst.current = echarts.init(ref.current)
-    const onResize = () => inst.current?.resize()
-    window.addEventListener('resize', onResize)
-    return () => {
-      window.removeEventListener('resize', onResize)
-      inst.current?.dispose()
-      inst.current = null
-    }
-  }, [])
-  useEffect(() => {
-    inst.current?.setOption(option, true)
-  }, [option])
-  return <div className="chart" style={{ height }} ref={ref} />
 }
 
 export function ResearchPage() {

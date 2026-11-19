@@ -12,6 +12,8 @@ export const PARAM_GROUPS = [
       { path: 'range.maxWidthAtr', label: '区间最大宽度', min: 0.5, max: 8, step: 0.1 },
       { path: 'range.minTouches', label: '最少触碰', min: 1, max: 6, step: 1 },
       { path: 'range.breakAtr', label: '突破缓冲', min: 0, max: 2, step: 0.1 },
+      { path: 'range.sideLookbackBars', label: '方向推断窗口', min: 0, max: 250, step: 10 },
+      { path: 'range.sideMinReturn', label: '方向推断阈值', min: 0, max: 0.5, step: 0.01 },
     ],
   },
   {

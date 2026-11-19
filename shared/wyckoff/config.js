@@ -32,6 +32,10 @@ export const DEFAULT_CONFIG = {
     maxPivots: 8,
     cooldownBars: 5,
     maxBarsAfterBreak: 20,
+    // pivot 区间的方向推断：区间起点之前 N 根的价格变化超过阈值时，
+    // 分别视为吸筹（下跌后）或派发（上涨后），否则保持 neutral。
+    sideLookbackBars: 60,
+    sideMinReturn: 0.05,
   },
   volume: {
     maPeriod: 20,
@@ -41,31 +45,31 @@ export const DEFAULT_CONFIG = {
   },
   sc: {
     lookback: 60,
-    volZ: 1.5,
-    spreadAtr: 1.2,
+    volZ: 1.2,
+    spreadAtr: 1.0,
     closePos: 0.4,
   },
   bc: {
     lookback: 60,
-    volZ: 1.5,
-    spreadAtr: 1.2,
+    volZ: 1.2,
+    spreadAtr: 1.0,
     closePos: 0.6,
   },
   ar: {
-    maxBars: 10,
-    reboundAtr: 1.5,
+    maxBars: 15,
+    reboundAtr: 1.2,
   },
   st: {
     toleranceAtr: 0.5,
     volBelowClimax: true,
   },
   spring: {
-    maxBreakAtr: 0.5,
-    confirmBars: 3,
+    maxBreakAtr: 1.0,
+    confirmBars: 5,
   },
   utad: {
-    maxBreakAtr: 0.5,
-    confirmBars: 3,
+    maxBreakAtr: 1.0,
+    confirmBars: 5,
   },
   sos: {
     spreadAtr: 1.2,
@@ -126,6 +130,8 @@ export function validateConfig(user = {}) {
   numeric('range.maxWidthAtr', c.range.maxWidthAtr, 0.1, 20)
   numeric('range.minTouches', c.range.minTouches, 1, 20)
   numeric('range.breakAtr', c.range.breakAtr, 0, 5)
+  numeric('range.sideLookbackBars', c.range.sideLookbackBars, 0, 500)
+  numeric('range.sideMinReturn', c.range.sideMinReturn, 0, 1)
   numeric('volume.maPeriod', c.volume.maPeriod, 2, 200)
   numeric('volume.zWindow', c.volume.zWindow, 5, 500)
   numeric('sc.lookback', c.sc.lookback, 5, 1000)
