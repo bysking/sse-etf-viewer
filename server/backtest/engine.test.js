@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeWyckoff } from '../../shared/wyckoff/analyzer.js'
-import { runBacktest } from './engine.js'
+import { runBacktest, sizePosition } from './engine.js'
 import { accumulationBars, WYCKOFF_TEST_CONFIG } from '../../test-support/fixtures.js'
 
 const strategy = {
@@ -84,6 +84,20 @@ test('回测：手续费与滑点计入，T+1 不允许同日卖出', () => {
   assert.ok(sell.fee >= 5)
   assert.ok(buy.date > buy.signalDate)
   assert.ok(sell.date > sell.signalDate)
+})
+
+test('仓位计算：浮点误差不应少买一档', () => {
+  // 100000 × 1% / (4.0 - 3.8) = 4999.999999999995，直接 floor 会算成 4900
+  const ex = { position: { type: 'riskBased', riskPct: 0.01, maxPositionPct: 1 }, lotSize: 100 }
+  assert.equal(sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: 3.8, ex }), 5000)
+  // 全仓同样受最小单位约束
+  assert.equal(
+    sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: null, ex: { position: { type: 'allIn' }, lotSize: 100 } }),
+    25000,
+  )
+  // 止损位不低于入场价时不开仓
+  assert.equal(sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: 4.0, ex }), 0)
+  assert.equal(sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: null, ex }), 0)
 })
 
 test('回测：非法成交模式直接报错', () => {

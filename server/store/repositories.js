@@ -324,6 +324,58 @@ export function insertSignal(signal) {
   }
 }
 
+/* ---------------------------- 策略运行状态 ---------------------------- */
+
+export function getStrategyState(strategyId) {
+  const row = getDb().prepare('SELECT * FROM strategy_state WHERE strategy_id = ?').get(strategyId)
+  if (!row) return null
+  const parsed = parse(row.state_json, {})
+  return {
+    strategyId: row.strategy_id,
+    symbol: row.symbol,
+    lastBar: row.last_bar,
+    lastPhase: row.last_phase,
+    lastConfidence: row.last_confidence,
+    lastAction: row.last_action,
+    lastEventKey: row.last_event_key,
+    updatedAt: row.updated_at,
+    // 扩展字段（持仓、账本状态）存在 state_json 里，避免频繁改表
+    ...parsed,
+  }
+}
+
+export function setStrategyState(strategyId, patch = {}) {
+  const cur = getStrategyState(strategyId) || {}
+  const next = { ...cur, ...patch }
+  const db = getDb()
+  const ts = now()
+  db.prepare(
+    `INSERT INTO strategy_state
+     (strategy_id, symbol, last_bar, last_phase, last_confidence, last_action, last_event_key, state_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(strategy_id) DO UPDATE SET
+       symbol = excluded.symbol,
+       last_bar = excluded.last_bar,
+       last_phase = excluded.last_phase,
+       last_confidence = excluded.last_confidence,
+       last_action = excluded.last_action,
+       last_event_key = excluded.last_event_key,
+       state_json = excluded.state_json,
+       updated_at = excluded.updated_at`,
+  ).run(
+    strategyId,
+    next.symbol ?? '',
+    next.lastBar ?? null,
+    next.lastPhase ?? null,
+    next.lastConfidence ?? null,
+    next.lastAction ?? null,
+    next.lastEventKey ?? null,
+    JSON.stringify({ holding: next.holding ?? false, ...(next.extra ?? {}) }),
+    ts,
+  )
+  return getStrategyState(strategyId)
+}
+
 /* ---------------------------- 分红 / 除息 ---------------------------- */
 
 const mapDividend = (row) =>

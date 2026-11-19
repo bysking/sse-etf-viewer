@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS paper_orders (
   side TEXT NOT NULL,
   qty INTEGER NOT NULL,
   signal_date TEXT NOT NULL,
+  stop_level REAL,
   fill_date TEXT,
   fill_price REAL,
   status TEXT NOT NULL,
@@ -100,6 +101,7 @@ CREATE TABLE IF NOT EXISTS strategy_state (
   last_confidence REAL,
   last_action TEXT,
   last_event_key TEXT,
+  state_json TEXT,
   updated_at TEXT NOT NULL
 );
 

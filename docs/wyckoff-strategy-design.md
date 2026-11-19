@@ -905,7 +905,7 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 | **P0（1–2 天）** | 日 K / 快照 / 日历接口；SQLite + schema；`shared/indicators.js`；前端拆页骨架；复权验证 | `/api/kline` 返回 1300 根；`node --test` 通过；现有查看器功能不变 |
 | **P1（3–5 天）** | 流式 Wyckoff 分析器；核心事件；周线背景；份额流；事件研究；回测核心 | 合成 fixture 能识别 Spring/UTAD；截断测试通过；510300 事件统计可输出 |
 | **P2（3–5 天）** | 标注行情图；事件研究面板；策略编辑器；回测结果页 | 能新建「Spring 吸筹」策略、跑回测、看到区间/事件/买卖点/收益指标 |
-| **P3（2–3 天）** | 规则模拟盘 + 人工确认盘；EOD 调度；信号去重；飞书 / Telegram；发送日志 | 同一信号重启后不重复推送；待成交按次日开盘结算；两个渠道收到测试消息 |
+| **P3（2–3 天）** ✅ | 规则模拟盘 + 人工确认盘；EOD 调度；信号去重；飞书 / Telegram；发送日志 | 同一信号重启后不重复推送；待成交按次日开盘结算；两个渠道收到测试消息 |
 | **P4（按需）** | 参数扫描；完整 Phase A–E；周线事件；P&F 目标位；图表截图推送；公网鉴权 | 按需验收 |
 
 预计总计 **2–3 周**（个人开发节奏）；主要不确定性在事件阈值校准，不在架构。
@@ -951,6 +951,39 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 
 ---
 
+## 18.5 模拟盘、监控与通知（P3 实现）
+
+**双账本模拟盘**（`server/paper/service.js`）：
+
+- `rule` 账本：信号自动挂单，评估策略本身；
+- `manual` 账本：只记录人工确认的信号，评估人工过滤价值；
+- 成交口径与回测**复用同一组函数**（`sizePosition` / `feeOf` / `buyPriceOf` / `sellPriceOf`），避免两套规则；
+- T+1：批次开始时已持有的份额才可卖，本批次新买入的下一轮才可卖；
+- 停机补结算：落后超过 `maxLagBars` 个交易日标记 `missed`，不伪造成交；
+- 开盘跌破结构失效位则取消入场（与回测一致）。
+
+**信号与调度**（`server/monitor/`）：
+
+- `signals.js`：只在**最新一根 bar** 判断，避免把历史事件重复当作今日信号；持仓时出场优先，避免同日既买又卖；
+- 信号去重依赖 `signals` 表唯一约束，重启/重复检查不重复写入；
+- `scheduler.js`：30 秒 tick，价格类 15:10、含份额 18:40（重试至 22:00），非交易日跳过，同日只检查一次；
+- `check.js`：分析 → 结算历史订单 → 生成信号 → 规则账本挂单 → 更新状态 → 发通知；
+- 生产入口 `server/prod.js` 启动调度，`ENABLE_MONITOR=0` 关闭；开发环境不加载 prod.js，因此不会误触发。
+
+**通知**（`server/notify/`）：
+
+- 飞书：webhook + 可选签名，支持 text / interactive card；飞书 HTTP 200 但 `code != 0` 也判失败；
+- Telegram：`sendMessage` + HTML 转义 + 4096 字节截断，`apiBase` 可配代理或自建 Bot API；
+- 统一 `dispatch()`：只发启用渠道、串行发送避免限流、指数退避重试、每次结果写 `notify_log`；
+- 消息永远是「候选」语义，带事件、阶段、区间、失效位和数据日期；
+- 渠道密钥在 API 返回时脱敏。
+
+**API**：`/api/strategies/:id/paper`、`/paper/orders`、`/paper/settle`、`/check`、`/api/monitor/status`、`/api/monitor/run`、`/api/channels*`、`/api/notify-log`。
+
+**前端**：新增「监控」页，包含候选信号、双账本模拟盘、通知渠道配置、发送记录四个 Tab。
+
+**已知限制**：模拟盘依赖每日有行情写入；进程未常驻时靠启动补结算与 `missed` 标记兜底；未实现盘中触发，全部为收盘后日频。
+
 ## 19. AI 助手与策略生成
 
 - 支持任意 **OpenAI-compatible chat/completions** 端点：`baseUrl`、`model`、可选 `apiKey`、`temperature`、`maxTokens`；配置只存服务端，接口返回脱敏。
@@ -970,3 +1003,4 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 | v1.0 | 2026-11-19 | 定稿：Wyckoff 事件层 + 声明式 DSL；日线 + 周线背景；纳入份额流；收盘后日频监控；飞书/Telegram；**规则模拟盘与人工确认盘双账本保留**；微信暂缓。 |
 | v1.1 | 2026-11-19 | 增加 AI 助手：OpenAI-compatible 模型配置、行情上下文分析、AI 生成 DSL 策略、服务端校验与快速回测；新增 AI 策略编写契约。 |
 | v1.2 | 2026-11-19 | 验证并实现前复权（除息事件表 + 自动识别 + 人工确认）；回测绑定策略版本并记录 `dataVersion`；新增轻量 DB 迁移，旧库自动补列。 |
+| v1.3 | 2026-11-19 | 实现 P3：双账本模拟盘、信号生成与去重、收盘后调度、飞书/Telegram 通知、监控页；修复仓位计算的浮点截断缺陷。 |

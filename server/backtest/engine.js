@@ -1,7 +1,7 @@
 // bar-by-bar 回测：T 日收盘出信号，T+1 开盘成交；含手续费、滑点、T+1、结构失效取消。
 import { compileStrategy } from '../../shared/strategy/evaluate.js'
 
-const DEFAULT_EXECUTION = {
+export const DEFAULT_EXECUTION = {
   fillAt: 'nextOpen',
   tPlus1: true,
   position: { type: 'riskBased', riskPct: 0.01, maxPositionPct: 1.0 },
@@ -13,14 +13,28 @@ const DEFAULT_EXECUTION = {
   cancelCooldownBars: 5,
 }
 
-const feeOf = (price, qty, ex) => Math.max(ex.minFee, price * qty * ex.feeRate)
+/** 手续费：佣金 + 最低佣金（ETF 无印花税） */
+export const feeOf = (price, qty, ex) => Math.max(ex.minFee, price * qty * ex.feeRate)
 
-function sizePosition({ equity, entryRef, stopLevel, ex }) {
+/** 买入价：开盘价 × (1 + 滑点) */
+export const buyPriceOf = (open, ex) => Number(open) * (1 + ex.slippageBps / 10000)
+
+/** 卖出价：开盘价 × (1 - 滑点) */
+export const sellPriceOf = (open, ex) => Number(open) * (1 - ex.slippageBps / 10000)
+
+/** 按最小交易单位向下取整；先吸收浮点误差，避免 4999.99999 被截成 4900 */
+function floorToLot(shares, lot) {
+  if (!(shares > 0)) return 0
+  return Math.floor(shares / lot + 1e-9) * lot
+}
+
+/** 按风险比例或全仓计算买入数量（已按最小交易单位取整） */
+export function sizePosition({ equity, entryRef, stopLevel, ex }) {
   const pos = ex.position || {}
   const lot = Math.max(1, Math.floor(ex.lotSize || 100))
   if (pos.type === 'allIn') {
     const byMax = (equity * (pos.maxPositionPct ?? 1)) / entryRef
-    return Math.floor(byMax / lot) * lot
+    return floorToLot(byMax, lot)
   }
   const riskPct = pos.riskPct ?? 0.01
   if (stopLevel == null) return 0
@@ -28,8 +42,10 @@ function sizePosition({ equity, entryRef, stopLevel, ex }) {
   if (!(dist > 0)) return 0
   const byRisk = (equity * riskPct) / dist
   const byMax = (equity * (pos.maxPositionPct ?? 1)) / entryRef
-  return Math.floor(Math.min(byRisk, byMax) / lot) * lot
+  return floorToLot(Math.min(byRisk, byMax), lot)
 }
+
+export { floorToLot }
 
 function calcMetrics({ curve, initialCash, trades }) {
   if (!curve.length) return { totalReturn: 0, annualized: null, maxDrawdown: 0, sharpe: null, winRate: null, profitFactor: null, tradeCount: 0 }
@@ -108,7 +124,7 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
         entryCooldownUntil = i + (ex.cancelCooldownBars ?? 5)
         pendingBuy = null
       } else {
-        const price = open * (1 + ex.slippageBps / 10000)
+        const price = buyPriceOf(open, ex)
         let qty = pendingBuy.qty
         let fee = feeOf(price, qty, ex)
         let cost = price * qty + fee
@@ -146,7 +162,7 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
       const open = Number(bar.open)
       const qty = Math.min(pendingSell.qty, units, sellableUnits)
       if (qty > 0) {
-        const price = open * (1 - ex.slippageBps / 10000)
+        const price = sellPriceOf(open, ex)
         const fee = feeOf(price, qty, ex)
         const proceeds = price * qty - fee
         const pnl = proceeds - avgCost * qty

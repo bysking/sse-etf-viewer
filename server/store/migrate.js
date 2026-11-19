@@ -11,6 +11,8 @@ const COLUMNS = [
   ['backtest_runs', 'strategy_version_id', 'TEXT'],
   ['backtest_runs', 'code_hash', 'TEXT'],
   ['backtest_runs', 'data_version', 'TEXT'],
+  ['paper_orders', 'stop_level', 'REAL'],
+  ['strategy_state', 'state_json', 'TEXT'],
 ]
 
 function existingColumns(db, table) {

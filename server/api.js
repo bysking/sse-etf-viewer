@@ -14,6 +14,10 @@ import { startJob } from './jobs/queue.js'
 import { publicAiConfig, saveAiConfig, getEffectiveAiConfig, resolveAiConfigForTest } from './ai/config.js'
 import { analyzeMarket, generateStrategy, chatWithContext, testAiConnection } from './ai/service.js'
 import { AiError } from './ai/client.js'
+import * as paper from './paper/service.js'
+import { executeCheck } from './monitor/check.js'
+import { runOnce, getSchedulerStatus } from './monitor/scheduler.js'
+import * as notify from './notify/dispatch.js'
 
 class BadRequest extends Error {}
 class NotFound extends Error {}
@@ -318,6 +322,136 @@ export function apiMiddleware() {
         if (method !== 'GET') throw bad('不支持的请求方法')
         const limit = Math.max(1, Math.min(500, Number(q.limit) || 100))
         return send(200, { items: repo.listSignals(signalsMatch[1], limit) })
+      }
+
+      // ---------- 模拟盘 ----------
+      const paperMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/paper$/)
+      if (paperMatch) {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        const strategy = repo.getStrategy(paperMatch[1])
+        if (!strategy) throw new NotFound('策略不存在')
+        const ledgers = (q.ledger || 'rule,manual').split(',').filter((l) => paper.LEDGERS.includes(l))
+        const end = isoDate(q.end || todayCST(), 'end')
+        const start = isoDate(q.start || addDays(end, -120), 'start')
+        const raw = await getKline(strategy.config.symbol, start, end)
+        const k = applyAdjust(raw, repo.listDividends(strategy.config.symbol, { onlyConfirmed: true }))
+        const bars = seriesToBars(k.series)
+        return send(200, {
+          strategyId: strategy.id,
+          symbol: strategy.config.symbol,
+          adjust: k.adjust,
+          items: ledgers.map((ledger) => paper.getPaperSummary({ strategyId: strategy.id, ledger, bars })).filter(Boolean),
+        })
+      }
+
+      const paperOrdersMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/paper\/orders$/)
+      if (paperOrdersMatch) {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        return send(200, {
+          items: paper.listOrders({
+            strategyId: paperOrdersMatch[1],
+            ledger: q.ledger || null,
+            status: q.status || null,
+            limit: Math.max(1, Math.min(500, Number(q.limit) || 100)),
+          }),
+        })
+      }
+
+      // 手动结算：用当前数据结算待成交订单（调度器每日也会自动做）
+      const paperSettleMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/paper\/settle$/)
+      if (paperSettleMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const strategy = repo.getStrategy(paperSettleMatch[1])
+        if (!strategy) throw new NotFound('策略不存在')
+        const body = await readJson(req)
+        const end = isoDate(body.end || todayCST(), 'end')
+        const start = isoDate(body.start || addDays(end, -420), 'start')
+        const raw = await getKline(strategy.config.symbol, start, end)
+        const k = applyAdjust(raw, repo.listDividends(strategy.config.symbol, { onlyConfirmed: true }))
+        const bars = seriesToBars(k.series)
+        const execution = { ...(strategy.config.execution || {}) }
+        const out = {}
+        for (const ledger of paper.LEDGERS) {
+          if (!paper.getAccount(strategy.id, ledger)) continue
+          out[ledger] = paper.settleOrders({ strategyId: strategy.id, symbol: strategy.config.symbol, ledger, bars, execution })
+        }
+        return send(200, { ok: true, result: out })
+      }
+
+      // ---------- 监控 ----------
+      const checkMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/check$/)
+      if (checkMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const strategy = repo.getStrategy(checkMatch[1])
+        if (!strategy) throw new NotFound('策略不存在')
+        const body = await readJson(req)
+        const r = await executeCheck({
+          strategy,
+          date: isoDate(body.date || todayCST(), 'date'),
+          force: true,
+          notify: body.notify !== false,
+        })
+        return send(200, r)
+      }
+
+      if (url.pathname === '/api/monitor/status') {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        return send(200, getSchedulerStatus())
+      }
+
+      if (url.pathname === '/api/monitor/run') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const summary = await runOnce({ force: Boolean(body.force) })
+        return send(200, summary)
+      }
+
+      // ---------- 通知 ----------
+      if (url.pathname === '/api/channels') {
+        if (method === 'GET') return send(200, { items: notify.listChannels().map(notify.publicChannel) })
+        if (method === 'POST') {
+          const body = await readJson(req)
+          const ch = notify.createChannel({ type: body.type, name: body.name, config: body.config, enabled: body.enabled !== false })
+          return send(201, notify.publicChannel(ch))
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const channelMatch = url.pathname.match(/^\/api\/channels\/([^/]+)$/)
+      if (channelMatch) {
+        const id = channelMatch[1]
+        if (method === 'PUT') {
+          const body = await readJson(req)
+          const ch = notify.updateChannel(id, body)
+          if (!ch) throw new NotFound('渠道不存在')
+          return send(200, notify.publicChannel(ch))
+        }
+        if (method === 'DELETE') {
+          if (!notify.deleteChannel(id)) throw new NotFound('渠道不存在')
+          return send(200, { ok: true })
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const channelTestMatch = url.pathname.match(/^\/api\/channels\/([^/]+)\/test$/)
+      if (channelTestMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const ch = notify.getChannel(channelTestMatch[1])
+        if (!ch) throw new NotFound('渠道不存在')
+        const body = await readJson(req)
+        const message = body.message || {
+          level: 'candidate',
+          title: '【测试】通知渠道连通性',
+          markdown: `这是一条来自 ETF 策略系统的测试消息。\n时间：${new Date().toISOString()}`,
+        }
+        const r = await notify.sendToChannel(ch, message, { retries: 1 })
+        if (!r.ok) throw new Error(r.error || '发送失败')
+        return send(200, { ok: true, attempts: r.attempts })
+      }
+
+      if (url.pathname === '/api/notify-log') {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        return send(200, { items: notify.listNotifyLog(Math.max(1, Math.min(500, Number(q.limit) || 100))) })
       }
 
       if (url.pathname === '/api/backtests/quick') {

@@ -22,6 +22,7 @@ import { echarts, prepare, computeStats, buildOption } from './chart.js'
 import { INDICES, DEFAULT_INDEX, indexName } from './indices.js'
 import { ResearchPage } from './research.jsx'
 import { AiPage } from './ai.jsx'
+import { MonitorPage } from './monitor.jsx'
 import './style.css'
 
 const { RangePicker } = DatePicker
@@ -549,7 +550,7 @@ function RootApp() {
   const [page, setPage] = useState(() => {
     try {
       const qp = new URLSearchParams(location.search).get('page')
-      if (qp === 'research' || qp === 'viewer' || qp === 'ai') return qp
+      if (qp === 'research' || qp === 'viewer' || qp === 'ai' || qp === 'monitor') return qp
       return localStorage.getItem('sse-etf-page') || 'viewer'
     } catch {
       return 'viewer'
@@ -576,10 +577,19 @@ function RootApp() {
             { label: '行情查看', value: 'viewer' },
             { label: '策略研究', value: 'research' },
             { label: 'AI 助手', value: 'ai' },
+            { label: '监控', value: 'monitor' },
           ]}
         />
       </div>
-      {page === 'research' ? <ResearchPage /> : page === 'ai' ? <AiPage /> : <ViewerPage />}
+      {page === 'research' ? (
+        <ResearchPage />
+      ) : page === 'ai' ? (
+        <AiPage />
+      ) : page === 'monitor' ? (
+        <MonitorPage />
+      ) : (
+        <ViewerPage />
+      )}
     </ConfigProvider>
   )
 }
