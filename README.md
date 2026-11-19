@@ -48,6 +48,8 @@
 
 后端使用官方 `openai` npm 包调用，任何兼容 `/chat/completions` 的服务都可直接接入。
 
+在「模型设置」里可以看到**近 30 天用量**（调用次数、失败次数、输入/输出 token），便于估算成本。用量只记 token 与模型元信息，不保存提示词全文。
+
 也可用环境变量作为无数据库配置时的回退：`AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`、`AI_TEMPERATURE`、`AI_MAX_TOKENS`。
 
 AI 策略编写契约见 `docs/ai-strategy-authoring.md`，也可通过 `GET /api/strategy-authoring/schema` 获取。

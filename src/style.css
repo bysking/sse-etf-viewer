@@ -11,6 +11,7 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
 
 /* 顶层页面切换 */
 .pagetabs{max-width:1100px;margin:0 auto;padding:14px 16px 0}
+.page-loading{max-width:1100px;margin:0 auto;padding:40px 16px;color:var(--muted);font-size:13px}
 
 /* 搜索 + 收藏 */
 .search{margin-top:16px}

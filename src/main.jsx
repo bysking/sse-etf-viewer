@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import dayjs from 'dayjs'
 import {
@@ -20,11 +20,13 @@ import { StarFilled, StarOutlined, CloseOutlined } from '@ant-design/icons'
 import { api } from './api.js'
 import { echarts, prepare, computeStats, buildOption } from './chart.js'
 import { INDICES, DEFAULT_INDEX, indexName } from './indices.js'
-import { ResearchPage } from './research.jsx'
-import { AiPage } from './ai.jsx'
-import { MonitorPage } from './monitor.jsx'
-import { StrategiesPage } from './strategies.jsx'
 import './style.css'
+
+// 非首屏页面按需加载：行情查看是默认页，其余在切换时才下载对应 chunk
+const ResearchPage = lazy(() => import('./research.jsx').then((m) => ({ default: m.ResearchPage })))
+const AiPage = lazy(() => import('./ai.jsx').then((m) => ({ default: m.AiPage })))
+const MonitorPage = lazy(() => import('./monitor.jsx').then((m) => ({ default: m.MonitorPage })))
+const StrategiesPage = lazy(() => import('./strategies.jsx').then((m) => ({ default: m.StrategiesPage })))
 
 const { RangePicker } = DatePicker
 const { Text, Title } = Typography
@@ -583,17 +585,19 @@ function RootApp() {
           ]}
         />
       </div>
-      {page === 'research' ? (
-        <ResearchPage />
-      ) : page === 'strategies' ? (
-        <StrategiesPage />
-      ) : page === 'ai' ? (
-        <AiPage />
-      ) : page === 'monitor' ? (
-        <MonitorPage />
-      ) : (
-        <ViewerPage />
-      )}
+      <Suspense fallback={<div className="page-loading">加载中…</div>}>
+        {page === 'research' ? (
+          <ResearchPage />
+        ) : page === 'strategies' ? (
+          <StrategiesPage />
+        ) : page === 'ai' ? (
+          <AiPage />
+        ) : page === 'monitor' ? (
+          <MonitorPage />
+        ) : (
+          <ViewerPage />
+        )}
+      </Suspense>
     </ConfigProvider>
   )
 }
