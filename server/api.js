@@ -15,6 +15,7 @@ import { publicAiConfig, saveAiConfig, getEffectiveAiConfig, resolveAiConfigForT
 import { analyzeMarket, generateStrategy, chatWithContext, testAiConnection } from './ai/service.js'
 import { AiError } from './ai/client.js'
 import * as paper from './paper/service.js'
+import * as confirmPaper from './paper/confirm.js'
 import { executeCheck } from './monitor/check.js'
 import { runOnce, getSchedulerStatus } from './monitor/scheduler.js'
 import * as notify from './notify/dispatch.js'
@@ -378,6 +379,23 @@ export function apiMiddleware() {
         return send(200, { ok: true, result: out })
       }
 
+      // ---------- 人工确认 ----------
+      const confirmMatch = url.pathname.match(/^\/api\/signals\/([^/]+)\/confirm$/)
+      if (confirmMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const r = confirmPaper.confirmSignal({ signalId: confirmMatch[1], strategyId: body.strategyId || null })
+        return send(200, r)
+      }
+
+      const ignoreMatch = url.pathname.match(/^\/api\/signals\/([^/]+)\/ignore$/)
+      if (ignoreMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const r = confirmPaper.ignoreSignal({ signalId: ignoreMatch[1], strategyId: body.strategyId || null })
+        return send(200, r)
+      }
+
       // ---------- 监控 ----------
       const checkMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/check$/)
       if (checkMatch) {
@@ -686,7 +704,13 @@ export function apiMiddleware() {
       }
     } catch (e) {
       if (e instanceof NotFound) return send(404, { error: e.message })
-      send(e instanceof BadRequest ? 400 : 502, { error: e.message })
+      // 服务层用 err.status 标记语义错误（如 404 信号不存在、400 跨策略操作），直接透传
+      if (e?.status === 404) return send(404, { error: e.message })
+      if (e?.status === 400) return send(400, { error: e.message })
+      if (e instanceof BadRequest) return send(400, { error: e.message })
+      // AI 上游错误带 status 时按上游语义返回，便于前端区分鉴权/限流
+      if (e instanceof AiError && e.status) return send(502, { error: e.message, code: e.code })
+      send(502, { error: e.message })
     }
   }
 }

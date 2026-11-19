@@ -462,6 +462,37 @@ export function setSetting(key, value) {
   return value
 }
 
+export const SIGNAL_STATUSES = ['candidate', 'confirmed', 'ignored', 'expired']
+
+export function getSignal(id) {
+  const r = getDb().prepare('SELECT * FROM signals WHERE id = ?').get(id)
+  if (!r) return null
+  return {
+    id: r.id,
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    rangeId: r.range_id,
+    eventType: r.event_type,
+    occurredAt: r.occurred_at,
+    detectedAt: r.detected_at,
+    action: r.action,
+    price: r.price,
+    evidence: parse(r.evidence_json, {}),
+    status: r.status,
+    createdAt: r.created_at,
+  }
+}
+
+/** 人工确认/忽略信号；只有 candidate 能改，避免重复确认 */
+export function setSignalStatus(id, status) {
+  if (!SIGNAL_STATUSES.includes(status)) throw new Error(`未知信号状态：${status}`)
+  const cur = getSignal(id)
+  if (!cur) return null
+  if (cur.status !== 'candidate') return { ...cur, unchanged: true }
+  getDb().prepare('UPDATE signals SET status = ? WHERE id = ?').run(status, id)
+  return getSignal(id)
+}
+
 export function listSignals(strategyId, limit = 100) {
   const rows = getDb()
     .prepare('SELECT * FROM signals WHERE strategy_id = ? ORDER BY detected_at DESC LIMIT ?')

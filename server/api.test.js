@@ -166,6 +166,53 @@ test('回测结果包含复权口径与数据版本', async () => {
   }
 })
 
+test('人工确认 API：确认后人工账本挂单，忽略只改状态', async () => {
+  const repo = await import('./store/repositories.js')
+  const sid = (await call('POST', '/api/strategies', { name: '人工确认', config: validConfig })).body.id
+  const sig = repo.insertSignal({
+    strategyId: sid,
+    symbol: '510300',
+    rangeId: 'R-2026-10-23',
+    eventType: 'Spring',
+    occurredAt: '2026-11-17',
+    detectedAt: '2026-11-17',
+    action: 'entry_candidate',
+    price: 4.02,
+    evidence: { phase: 'accumulation_C', stopLevel: 3.92 },
+  })
+
+  const confirmed = await call('POST', `/api/signals/${sig.id}/confirm`, {})
+  assert.equal(confirmed.status, 200)
+  assert.equal(confirmed.body.signal.status, 'confirmed')
+  assert.equal(confirmed.body.order.ledger, 'manual')
+  assert.equal(confirmed.body.order.side, 'buy')
+
+  const orders = await call('GET', `/api/strategies/${sid}/paper/orders?ledger=manual`)
+  assert.equal(orders.body.items.length, 1)
+
+  // 重复确认不再下单
+  const again = await call('POST', `/api/signals/${sig.id}/confirm`, {})
+  assert.equal(again.body.reason, 'alreadyHandled')
+
+  // 忽略另一个信号
+  const sig2 = repo.insertSignal({
+    strategyId: sid,
+    symbol: '510300',
+    rangeId: 'R-2026-10-23',
+    eventType: 'SOS',
+    occurredAt: '2026-11-18',
+    detectedAt: '2026-11-18',
+    action: 'exit_candidate',
+    price: 4.3,
+    evidence: {},
+  })
+  const ignored = await call('POST', `/api/signals/${sig2.id}/ignore`, {})
+  assert.equal(ignored.body.signal.status, 'ignored')
+
+  const missing = await call('POST', '/api/signals/nope/confirm', {})
+  assert.equal(missing.status, 404)
+})
+
 test('策略版本 API：创建、校验、提升 active 并同步策略配置', async () => {
   const created = await call('POST', '/api/strategies', { name: '版本 API', config: validConfig })
   assert.equal(created.status, 201)

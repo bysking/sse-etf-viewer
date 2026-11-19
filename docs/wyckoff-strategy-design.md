@@ -980,7 +980,18 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 
 **API**：`/api/strategies/:id/paper`、`/paper/orders`、`/paper/settle`、`/check`、`/api/monitor/status`、`/api/monitor/run`、`/api/channels*`、`/api/notify-log`。
 
-**前端**：新增「监控」页，包含候选信号、双账本模拟盘、通知渠道配置、发送记录四个 Tab。
+**人工确认**（`server/paper/confirm.js`）：
+
+- `confirmSignal()`：确认后把信号转成**人工账本**的待成交订单，与规则账本共用同一套下单/结算逻辑；
+- `ignoreSignal()`：只改状态，不产生订单；
+- 只有 `candidate` 状态可操作，重复确认返回 `alreadyHandled`；
+- 已持仓或缺少失效位时不加仓，但仍标记 `confirmed`，避免候选反复出现；
+- 接口：`POST /api/signals/:id/confirm`、`POST /api/signals/:id/ignore`。
+
+**前端**：
+
+- 新增「监控」页：候选信号（含确认/忽略）、双账本模拟盘、通知渠道配置、发送记录；
+- 新增「策略管理」页：策略列表、启停开关、详情抽屉（版本历史 + 校验状态 + 来源溯源 + 回测记录 + 一键启用/回测）。
 
 **已知限制**：模拟盘依赖每日有行情写入；进程未常驻时靠启动补结算与 `missed` 标记兜底；未实现盘中触发，全部为收盘后日频。
 

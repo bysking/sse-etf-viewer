@@ -215,6 +215,44 @@ export function MonitorPage() {
     }
   }
 
+  const refreshSignalsAndPaper = async () => {
+    if (!selected) return
+    const [sg, pp] = await Promise.all([
+      api(`/api/strategies/${selected}/signals`, { limit: 100 }),
+      api(`/api/strategies/${selected}/paper`),
+    ])
+    setSignals(sg.items || [])
+    setPaper(pp)
+  }
+
+  const confirmSig = async (id) => {
+    setBusy(`c-${id}`)
+    try {
+      const r = await postApi(`/api/signals/${id}/confirm`, { strategyId: selected })
+      if (r.order) msgApi.success(`已确认，人工账本挂单 ${r.order.side === 'buy' ? '买入' : '卖出'} ${r.order.qty} 份`)
+      else if (r.reason === 'notExecutable') msgApi.warning('已标记确认，但当前无法下单（可能已持仓或缺少失效位）')
+      else msgApi.info('该信号已处理过')
+      await refreshSignalsAndPaper()
+    } catch (e) {
+      msgApi.error(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const ignoreSig = async (id) => {
+    setBusy(`i-${id}`)
+    try {
+      await postApi(`/api/signals/${id}/ignore`, { strategyId: selected })
+      msgApi.success('已忽略')
+      await refreshSignalsAndPaper()
+    } catch (e) {
+      msgApi.error(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
   const testChannel = async (id) => {
     setBusy(`test-${id}`)
     try {
@@ -261,7 +299,30 @@ export function MonitorPage() {
       title: '状态',
       dataIndex: 'status',
       width: 90,
-      render: (s) => <Tag>{s === 'candidate' ? '候选' : s}</Tag>,
+      render: (s) => (
+        <Tag color={s === 'confirmed' ? 'green' : s === 'ignored' ? 'default' : 'orange'}>
+          {s === 'candidate' ? '候选' : s === 'confirmed' ? '已确认' : s === 'ignored' ? '已忽略' : s}
+        </Tag>
+      ),
+    },
+    {
+      title: '人工确认',
+      width: 150,
+      render: (_, r) =>
+        r.status === 'candidate' ? (
+          <Space size={4}>
+            <Button size="small" type="primary" loading={busy === `c-${r.id}`} onClick={() => confirmSig(r.id)}>
+              确认
+            </Button>
+            <Button size="small" loading={busy === `i-${r.id}`} onClick={() => ignoreSig(r.id)}>
+              忽略
+            </Button>
+          </Space>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {r.status === 'confirmed' ? '已进人工账本' : '已跳过'}
+          </span>
+        ),
     },
   ]
 
