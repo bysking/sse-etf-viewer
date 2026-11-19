@@ -158,6 +158,27 @@ export function apiMiddleware() {
         return send(200, { items: repo.listSignals(signalsMatch[1], limit) })
       }
 
+      if (url.pathname === '/api/backtests/quick') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const config = checkStrategyConfig(body.config)
+        const end = isoDate(body.end || todayCST(), 'end')
+        const start = isoDate(body.start || addDays(end, -365), 'start')
+        if (start > end) throw bad('开始日期不能晚于结束日期')
+        const initialCash = body.initialCash == null ? config.initialCash ?? 100000 : Number(body.initialCash)
+        if (!Number.isFinite(initialCash) || initialCash <= 0) throw bad('initialCash 必须是正数')
+        const run = repo.createRun({
+          strategyId: 'quick',
+          configSnapshot: { ...config, initialCash },
+          engineVersion: 'wyckoff-v1',
+          symbol: config.symbol,
+          start,
+          end,
+        })
+        startJob(run.id, () => executeBacktest(run.id))
+        return send(202, { id: run.id, status: run.status })
+      }
+
       const runMatch = url.pathname.match(/^\/api\/backtests\/([^/]+)$/)
       if (runMatch) {
         if (method !== 'GET') throw bad('不支持的请求方法')
@@ -195,6 +216,7 @@ export function apiMiddleware() {
           code,
           start,
           end,
+          bars: k.series,
           summary: summaryOf(analysis),
           events: analysis.events,
           ranges: analysis.ranges,

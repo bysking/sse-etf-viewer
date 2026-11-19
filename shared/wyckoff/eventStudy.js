@@ -1,6 +1,8 @@
 // 事件研究：统计事件确认后次日开盘买入的前瞻收益、MFE/MAE、胜率。
 // 只用于校准阈值，不参与策略自动择优，避免过拟合。
 
+export const STUDY_EVENT_TYPES = ['SC', 'BC', 'AR', 'ST', 'Spring', 'Test', 'UTAD', 'SOS', 'SOW', 'LPS', 'LPSY']
+
 const median = (arr) => {
   if (!arr.length) return null
   const s = [...arr].sort((a, b) => a - b)
@@ -17,10 +19,12 @@ const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length 
  */
 export function eventStudy(bars, events, options = {}) {
   const horizons = options.horizons || [5, 10, 20, 60]
+  const types = options.types || STUDY_EVENT_TYPES
   const slip = (options.slippageBps ?? 0) / 10000
   const rows = []
 
   for (const e of events) {
+    if (!types.includes(e.type)) continue
     const entryIndex = e.detectedIndex + 1
     if (entryIndex >= bars.length) continue
     const entryPrice = Number(bars[entryIndex].open) * (1 + slip)

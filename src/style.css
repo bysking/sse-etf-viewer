@@ -9,6 +9,9 @@
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
 main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
 
+/* 顶层页面切换 */
+.pagetabs{max-width:1100px;margin:0 auto;padding:14px 16px 0}
+
 /* 搜索 + 收藏 */
 .search{margin-top:16px}
 .search .box{display:flex;gap:8px;align-items:center}
@@ -45,6 +48,17 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
 
 /* 指数下拉底部自定义入口 */
 .customidx{padding:8px 0 0;margin-top:4px;border-top:1px solid var(--line)}
+
+/* 策略研究 */
+.research-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.eventtags{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.eventtags .ant-tag{margin:0}
+.panel .ant-table{font-size:12px}
+.panel .ant-table-thead > tr > th{font-size:12px}
+@media(max-width:900px){
+  .research-grid{grid-template-columns:1fr}
+}
 
 footer{margin-top:16px;color:var(--muted);font-size:12px;line-height:1.7}
 

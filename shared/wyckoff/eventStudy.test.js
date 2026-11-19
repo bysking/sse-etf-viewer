@@ -24,6 +24,9 @@ test('事件研究：次日开盘入场，统计前瞻收益与 MFE/MAE', () => 
   assert.ok(s.count >= 1)
   assert.ok(s.winRate > 0)
   assert.ok(s.avgMfe >= s.avgReturn)
+
+  // RangeStart / RangeBreak 不是交易事件，不能混进事件研究统计
+  assert.ok(!study.rows.some((r) => r.type === 'RangeStart' || r.type === 'RangeBreakDown'))
 })
 
 test('事件研究：最后一个事件之后没有足够 bar 时不出行', () => {

@@ -87,3 +87,13 @@ test('未知回测任务返回 404', async () => {
   const r = await call('GET', '/api/backtests/not-exist')
   assert.equal(r.status, 404)
 })
+
+test('快速回测路由先于 /api/backtests/:id 匹配，并校验配置', async () => {
+  const r = await call('POST', '/api/backtests/quick', {
+    config: { symbol: '123', wyckoff: {} },
+    start: '2025-01-01',
+    end: '2025-12-31',
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.body.error, /6 位代码/)
+})

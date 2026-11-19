@@ -7,6 +7,7 @@ import {
   AutoComplete,
   Button,
   Input,
+  Segmented,
   Select,
   Space,
   Tag,
@@ -19,6 +20,7 @@ import { StarFilled, StarOutlined, CloseOutlined } from '@ant-design/icons'
 import { api } from './api.js'
 import { echarts, prepare, computeStats, buildOption } from './chart.js'
 import { INDICES, DEFAULT_INDEX, indexName } from './indices.js'
+import { ResearchPage } from './research.jsx'
 import './style.css'
 
 const { RangePicker } = DatePicker
@@ -100,7 +102,7 @@ function Chart({ series, norm, idxLabel }) {
 }
 
 /* ---------- 主应用 ---------- */
-function App() {
+function ViewerPage() {
   const seed = useRef(loadLast())
   const s = seed.current
   const hasLast = Boolean(s?.code && /^\d{6}$/.test(s.code))
@@ -541,4 +543,43 @@ function CustomIndex({ onPick }) {
   )
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+/* ---------- 顶层：行情查看 / 策略研究 ---------- */
+function RootApp() {
+  const [page, setPage] = useState(() => {
+    try {
+      const qp = new URLSearchParams(location.search).get('page')
+      if (qp === 'research' || qp === 'viewer') return qp
+      return localStorage.getItem('sse-etf-page') || 'viewer'
+    } catch {
+      return 'viewer'
+    }
+  })
+  const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sse-etf-page', page)
+    } catch {
+      /* 忽略写入失败 */
+    }
+  }, [page])
+
+  return (
+    <ConfigProvider theme={{ algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm }}>
+      <div className="pagetabs">
+        <Segmented
+          size="large"
+          value={page}
+          onChange={setPage}
+          options={[
+            { label: '行情查看', value: 'viewer' },
+            { label: '策略研究', value: 'research' },
+          ]}
+        />
+      </div>
+      {page === 'research' ? <ResearchPage /> : <ViewerPage />}
+    </ConfigProvider>
+  )
+}
+
+createRoot(document.getElementById('root')).render(<RootApp />)
