@@ -65,8 +65,14 @@ pnpm test            # 运行 node:test 测试
 ```bash
 pnpm build           # 构建前端到 dist/
 pnpm start           # http://localhost:8765 （托管 dist/ + /api）
-# 可选环境变量：PORT=9000 HOST=0.0.0.0
+# 常用环境变量：
+#   PORT=9000 HOST=127.0.0.1
+#   APP_SECRET_KEY=<随机串>    敏感字段加密，未配置则明文落库（启动会告警）
+#   APP_AUTH_TOKEN=<随机串>    访问令牌；对外监听时必须设置
+#   ENABLE_MONITOR=0          关闭收盘后自动调度
 ```
+
+> **安全**：默认只监听 `127.0.0.1`。改成 `0.0.0.0` 前必须设置 `APP_AUTH_TOKEN`，否则任何人都能调用接口（包括触发 AI 消耗额度）。详见 [docs/deployment.md](docs/deployment.md)。
 
 也可以 `pnpm preview`（Vite 预览构建产物，同样带 /api）。
 

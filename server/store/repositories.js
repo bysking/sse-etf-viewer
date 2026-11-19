@@ -324,6 +324,85 @@ export function insertSignal(signal) {
   }
 }
 
+/* ---------------------------- AI 用量 ---------------------------- */
+
+export function recordAiUsage({ kind, model = null, usage = null, symbol = null, ok = true, error = null }) {
+  getDb()
+    .prepare(
+      `INSERT INTO ai_usage
+       (id, kind, model, prompt_tokens, completion_tokens, total_tokens, symbol, ok, error, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      randomUUID(),
+      kind,
+      model,
+      usage?.prompt_tokens ?? null,
+      usage?.completion_tokens ?? null,
+      usage?.total_tokens ?? (usage ? (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0) : null),
+      symbol,
+      ok ? 1 : 0,
+      error,
+      now(),
+    )
+}
+
+/** 汇总：总调用、失败数、token 合计与按类型/模型分组 */
+export function summarizeAiUsage({ days = 30 } = {}) {
+  const since = new Date(Date.now() - days * 864e5).toISOString()
+  const db = getDb()
+  const totals = db
+    .prepare(
+      `SELECT COUNT(*) AS calls,
+              SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed,
+              SUM(COALESCE(total_tokens,0)) AS tokens,
+              SUM(COALESCE(prompt_tokens,0)) AS promptTokens,
+              SUM(COALESCE(completion_tokens,0)) AS completionTokens
+       FROM ai_usage WHERE created_at >= ?`,
+    )
+    .get(since)
+  const byKind = db
+    .prepare(
+      `SELECT kind, COUNT(*) AS calls, SUM(COALESCE(total_tokens,0)) AS tokens
+       FROM ai_usage WHERE created_at >= ? GROUP BY kind ORDER BY calls DESC`,
+    )
+    .all(since)
+  const byModel = db
+    .prepare(
+      `SELECT model, COUNT(*) AS calls, SUM(COALESCE(total_tokens,0)) AS tokens
+       FROM ai_usage WHERE created_at >= ? GROUP BY model ORDER BY calls DESC`,
+    )
+    .all(since)
+  const recent = db
+    .prepare('SELECT * FROM ai_usage ORDER BY created_at DESC LIMIT 50')
+    .all()
+    .map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      model: r.model,
+      promptTokens: r.prompt_tokens,
+      completionTokens: r.completion_tokens,
+      totalTokens: r.total_tokens,
+      symbol: r.symbol,
+      ok: !!r.ok,
+      error: r.error,
+      createdAt: r.created_at,
+    }))
+  return {
+    days,
+    totals: {
+      calls: totals?.calls ?? 0,
+      failed: totals?.failed ?? 0,
+      tokens: totals?.tokens ?? 0,
+      promptTokens: totals?.promptTokens ?? 0,
+      completionTokens: totals?.completionTokens ?? 0,
+    },
+    byKind,
+    byModel,
+    recent,
+  }
+}
+
 /* ---------------------------- 策略运行状态 ---------------------------- */
 
 export function getStrategyState(strategyId) {

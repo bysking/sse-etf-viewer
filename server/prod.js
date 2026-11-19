@@ -48,6 +48,12 @@ const ENABLE_MONITOR = process.env.ENABLE_MONITOR !== '0'
 
 server.listen(PORT, HOST, async () => {
   console.log(`已启动：http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`)
+  const { reportSecurityStatus } = await import('./store/crypto.js')
+  reportSecurityStatus()
+  // 绑定到非本机地址却没开鉴权，属于高危配置，单独强调
+  if (HOST !== '127.0.0.1' && HOST !== 'localhost' && !process.env.APP_AUTH_TOKEN) {
+    console.warn('[security] 正在监听外部地址但未设置 APP_AUTH_TOKEN：任何能访问该端口的人都可以调用接口。')
+  }
   if (ENABLE_MONITOR) {
     const { startScheduler } = await import('./monitor/scheduler.js')
     startScheduler()

@@ -648,12 +648,14 @@ export default {
 - 保留 `notify_channels.type` 与适配器注册表；
 - 个人微信群无官方机器人 API，后续若接入需明确采用企业微信群机器人或第三方推送，并接受相应风险。
 
-### 11.5 安全
+### 11.5 安全（已实现）
 
 - secret 只存服务端；API 返回时脱敏（只显示末尾若干字符）；
-- 可选 `APP_SECRET_KEY` 环境变量对 `config_json` 的密钥字段做 AES-GCM 加密存储；
-- 日志不打印完整 webhook URL / bot token；
-- 默认只监听 `127.0.0.1`；公网部署必须加 token 鉴权。
+- **已实现** `APP_SECRET_KEY` + AES-256-GCM 加密：AI apiKey、通知 webhook / botToken / secret 落库前加密；未配置密钥时降级明文并**启动告警**，不静默假装安全；
+- **已实现** `APP_AUTH_TOKEN` 鉴权：除 `/api/health` 外都需凭据，支持 `Authorization: Bearer`、`X-Auth-Token`、`?token=`，常量时间比较；前端把 token 存 localStorage，401 时提示一次；
+- 编辑渠道时不回传密钥字段，服务端保留旧值，避免误清空；
+- 日志不打印完整 webhook URL / bot token；绑定非本机地址且未开鉴权时额外告警；
+- 部署与安全清单见 `docs/deployment.md`。
 
 ### 11.6 日志、重试、限流
 
@@ -923,7 +925,7 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 | 中 | 份额 T 日晚发布、缺失、5 年限制 | 新鲜度规则 + 重试窗口 + 区间校验 |
 | 中 | 进程需常驻 | Windows 任务计划/NSSM；Linux systemd；启动补跑 |
 | 中 | 事件参数过拟合 | 事件研究仅用于校准，不自动择优；保留样本外区间 |
-| 低 | 公网部署泄露 webhook | 默认 127.0.0.1；外网加 token；secret 脱敏 |
+| ~~低~~ → 已缓解 | 公网部署泄露 webhook / 无鉴权 | 已实现 AES-GCM 加密 + `APP_AUTH_TOKEN` 鉴权 + 启动安全告警 + `docs/deployment.md` |
 | 低 | 已退市 ETF 缺失 | 明确仅覆盖当前上交所 ETF |
 
 ---

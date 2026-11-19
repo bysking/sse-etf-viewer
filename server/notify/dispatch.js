@@ -1,8 +1,28 @@
 // 通知分发：统一消息结构、按渠道发送、重试、限流、落日志。
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../store/db.js'
+import { encrypt, decrypt } from '../store/crypto.js'
 import feishu from './feishu.js'
 import telegram from './telegram.js'
+
+// 需要加密落库的字段
+const SECRET_FIELDS = ['webhookUrl', 'botToken', 'secret']
+
+function sealConfig(config = {}) {
+  const out = { ...config }
+  for (const k of SECRET_FIELDS) {
+    if (out[k]) out[k] = encrypt(out[k]) ?? out[k]
+  }
+  return out
+}
+
+function openConfig(config = {}) {
+  const out = { ...config }
+  for (const k of SECRET_FIELDS) {
+    if (out[k]) out[k] = decrypt(out[k])
+  }
+  return out
+}
 
 export const ADAPTERS = { feishu, telegram }
 
@@ -15,7 +35,8 @@ const mapChannel = (row) =>
         id: row.id,
         type: row.type,
         name: row.name,
-        config: safeParse(row.config_json, {}),
+        // 内部使用解密后的配置；对外返回时必须走 publicChannel() 脱敏
+        config: openConfig(safeParse(row.config_json, {})),
         enabled: !!row.enabled,
         createdAt: row.created_at,
       }
@@ -68,14 +89,21 @@ export function createChannel({ type, name, config = {}, enabled = true }) {
   const id = randomUUID()
   getDb()
     .prepare('INSERT INTO notify_channels (id, type, name, config_json, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, type, String(name || type), JSON.stringify(config), enabled ? 1 : 0, now())
+    .run(id, type, String(name || type), JSON.stringify(sealConfig(config)), enabled ? 1 : 0, now())
   return getChannel(id)
 }
 
 export function updateChannel(id, patch = {}) {
   const cur = getChannel(id)
   if (!cur) return null
-  const config = patch.config != null ? patch.config : cur.config
+  let config = patch.config != null ? patch.config : cur.config
+  // 前端表单不显示密钥原文，未填写的敏感字段沿用旧值，避免编辑渠道把 webhook/token 清空
+  if (patch.config) {
+    config = { ...config }
+    for (const k of SECRET_FIELDS) {
+      if (!config[k] && cur.config?.[k]) config[k] = cur.config[k]
+    }
+  }
   const adapter = ADAPTERS[cur.type]
   const err = adapter.validateConfig(config)
   if (err) throw new Error(err)
@@ -83,7 +111,7 @@ export function updateChannel(id, patch = {}) {
   const enabled = patch.enabled != null ? (patch.enabled ? 1 : 0) : cur.enabled ? 1 : 0
   getDb()
     .prepare('UPDATE notify_channels SET name = ?, config_json = ?, enabled = ? WHERE id = ?')
-    .run(name, JSON.stringify(config), enabled, id)
+    .run(name, JSON.stringify(sealConfig(config)), enabled, id)
   return getChannel(id)
 }
 

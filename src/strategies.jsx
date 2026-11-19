@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Descriptions, Drawer, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, EyeOutlined, HistoryOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
-import { api, postApi, putApi } from './api.js'
+import { api, deleteApi, postApi, putApi } from './api.js'
 
 const { Title, Text } = Typography
 
@@ -77,10 +77,7 @@ export function StrategiesPage() {
 
   const remove = async (s) => {
     try {
-      await fetch(new URL(`/api/strategies/${s.id}`, location.origin), { method: 'DELETE' }).then(async (r) => {
-        const j = await r.json().catch(() => ({}))
-        if (!r.ok || j.error) throw new Error(j.error || '删除失败')
-      })
+      await deleteApi(`/api/strategies/${s.id}`)
       msgApi.success('已删除')
       if (detail?.strategy?.id === s.id) setDetail(null)
       await load()

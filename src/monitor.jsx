@@ -21,7 +21,7 @@ import {
   SendOutlined,
   SyncOutlined,
 } from '@ant-design/icons'
-import { api, postApi, putApi } from './api.js'
+import { api, deleteApi, postApi, putApi } from './api.js'
 
 const { Title, Text } = Typography
 
@@ -269,9 +269,7 @@ export function MonitorPage() {
 
   const removeChannel = async (id) => {
     try {
-      const r = await fetch(new URL(`/api/channels/${id}`, location.origin), { method: 'DELETE' })
-      const j = await r.json().catch(() => ({}))
-      if (!r.ok || j.error) throw new Error(j.error || '删除失败')
+      await deleteApi(`/api/channels/${id}`)
       msgApi.success('已删除')
       await load()
     } catch (e) {

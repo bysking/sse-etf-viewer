@@ -9,6 +9,7 @@ import { assertConfigured } from './config.js'
 import { buildAnalysisMessages, buildStrategyMessages, buildChatMessages } from './prompts.js'
 import { buildMarketContext } from './context.js'
 import { chatCompletion } from './client.js'
+import { withUsage } from './usage.js'
 
 /** 取数并构建上下文（默认使用校准后的 Wyckoff 参数） */
 export async function loadMarketContext({ code, start, end, includeShares = false }) {
@@ -41,7 +42,12 @@ export async function analyzeMarket({ aiConfig, code, start, end, includeShares,
   assertConfigured(aiConfig)
   const { context } = await loadMarketContext({ code, start, end, includeShares })
   const messages = buildAnalysisMessages({ contextText: context.text, question })
-  const res = await chatCompletion(aiConfig, messages)
+  const res = await withUsage({
+    kind: 'analyze',
+    symbol: code,
+    model: aiConfig.model,
+    run: () => chatCompletion(aiConfig, messages),
+  })
   return {
     content: res.content,
     contextSummary: context.summary,
@@ -55,7 +61,12 @@ export async function generateStrategy({ aiConfig, code, start, end, includeShar
   assertConfigured(aiConfig)
   const { context } = await loadMarketContext({ code, start, end, includeShares })
   const messages = buildStrategyMessages({ contextText: context.text, instructions })
-  const res = await chatCompletion(aiConfig, messages)
+  const res = await withUsage({
+    kind: 'strategy',
+    symbol: code,
+    model: aiConfig.model,
+    run: () => chatCompletion(aiConfig, messages),
+  })
   const strategyConfig = extractStrategyJson(res.content)
   const errors = strategyConfig ? validateStrategyConfig(strategyConfig) : ['AI 未返回可解析的 JSON 策略配置']
   return {
@@ -73,14 +84,19 @@ export async function chatWithContext({ aiConfig, messages, contextText }) {
   assertConfigured(aiConfig)
   const built = buildChatMessages({ messages, contextText })
   if (built.length <= 1) throw new Error('对话历史为空')
-  const res = await chatCompletion(aiConfig, built)
+  const res = await withUsage({ kind: 'chat', model: aiConfig.model, run: () => chatCompletion(aiConfig, built) })
   return { content: res.content, usage: res.usage, model: res.model }
 }
 
 export async function testAiConnection({ aiConfig }) {
   assertConfigured(aiConfig)
-  const res = await chatCompletion({ ...aiConfig, maxTokens: 32 }, [{ role: 'user', content: '请只回复 OK' }], {
-    timeoutMs: 30_000,
+  const res = await withUsage({
+    kind: 'test',
+    model: aiConfig.model,
+    run: () =>
+      chatCompletion({ ...aiConfig, maxTokens: 32 }, [{ role: 'user', content: '请只回复 OK' }], {
+        timeoutMs: 30_000,
+      }),
   })
   return { content: res.content, model: res.model }
 }

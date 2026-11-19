@@ -19,6 +19,7 @@ import * as confirmPaper from './paper/confirm.js'
 import { executeCheck } from './monitor/check.js'
 import { runOnce, getSchedulerStatus } from './monitor/scheduler.js'
 import * as notify from './notify/dispatch.js'
+import { createAuthMiddleware } from './auth.js'
 
 class BadRequest extends Error {}
 class NotFound extends Error {}
@@ -149,9 +150,12 @@ function summaryOf(analysis) {
 }
 
 export function apiMiddleware() {
+  const auth = createAuthMiddleware()
   return async (req, res, next) => {
     const url = new URL(req.url, 'http://localhost')
     if (!url.pathname.startsWith('/api/')) return next()
+    // 配置了 APP_AUTH_TOKEN 时所有 API（除 health）都要求凭据
+    if (auth && !auth(req, res)) return
 
     const q = Object.fromEntries(url.searchParams)
     const method = (req.method || 'GET').toUpperCase()
@@ -565,6 +569,12 @@ export function apiMiddleware() {
           }
         }
         throw bad('不支持的请求方法')
+      }
+
+      if (url.pathname === '/api/ai/usage') {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        const days = Math.max(1, Math.min(365, Number(q.days) || 30))
+        return send(200, repo.summarizeAiUsage({ days }))
       }
 
       if (url.pathname === '/api/ai/test') {

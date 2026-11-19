@@ -60,6 +60,7 @@ export function AiPage() {
   const [config, setConfig] = useState(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [configOpen, setConfigOpen] = useState(false)
+  const [usage, setUsage] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -116,6 +117,10 @@ export function AiPage() {
   const openConfig = () => {
     setForm(config ? { ...emptyForm(), ...config, apiKey: '' } : emptyForm())
     setConfigOpen(true)
+    // 打开设置时顺带拉用量，便于判断成本
+    api('/api/ai/usage', { days: 30 })
+      .then(setUsage)
+      .catch(() => setUsage(null))
   }
 
   const saveConfig = async () => {
@@ -740,6 +745,23 @@ export function AiPage() {
           </Text>
           {config?.source === 'env' && (
             <Alert type="info" showIcon message="当前配置来自环境变量；在这里保存后会写入本地数据库。" />
+          )}
+          {usage?.totals && (
+            <div className="ai-usage">
+              <Text strong>近 {usage.days} 天用量</Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                调用 {usage.totals.calls} 次{usage.totals.failed ? `（失败 ${usage.totals.failed}）` : ''} ·
+                输入 {usage.totals.promptTokens} tokens · 输出 {usage.totals.completionTokens} tokens
+              </Text>
+              {usage.byKind?.length > 0 && (
+                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                  按类型：{usage.byKind.map((k) => `${k.kind} ${k.calls}次/${k.tokens}tok`).join('，')}
+                </Text>
+              )}
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                费用请按所用模型的官方单价换算；这里只记录 token 用量。
+              </Text>
+            </div>
           )}
           <Space>
             <Button onClick={testConnection} loading={testing}>

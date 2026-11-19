@@ -153,6 +153,23 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
 CREATE INDEX IF NOT EXISTS idx_strategy_versions_strategy
   ON strategy_versions(strategy_id, version DESC);
 
+-- AI 调用用量：用于成本可见性，只记 token 与元信息，不记提示词全文
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,              -- analyze | strategy | chat | test
+  model TEXT,
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  total_tokens INTEGER,
+  symbol TEXT,
+  ok INTEGER NOT NULL DEFAULT 1,
+  error TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created
+  ON ai_usage(created_at DESC);
+
 -- 分红/除息事件：yunhq 日K不复权，用它把价格序列换算成前复权
 CREATE TABLE IF NOT EXISTS dividend_events (
   id TEXT PRIMARY KEY,
