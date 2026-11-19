@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
+import { migrate } from './migrate.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SCHEMA = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8')
@@ -19,6 +20,8 @@ export function openDatabase(file = ':memory:') {
     /* :memory: 等场景下 PRAGMA 可能不支持，忽略 */
   }
   db.exec(SCHEMA)
+  // schema.sql 用 IF NOT EXISTS，旧库不会自动补列，这里补齐
+  migrate(db)
   return db
 }
 

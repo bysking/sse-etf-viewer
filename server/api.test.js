@@ -122,6 +122,50 @@ test('未知回测任务返回 404', async () => {
   assert.equal(r.status, 404)
 })
 
+test('除息事件 API：检测入库为待确认，确认后才参与复权', async () => {
+  const repo = await import('./store/repositories.js')
+  repo.upsertDividends('510880', [{ date: '2024-01-23', dropPct: 3.2, amount: 0.1 }], { source: 'auto' })
+
+  const list = await call('GET', '/api/dividends?code=510880')
+  assert.equal(list.status, 200)
+  assert.equal(list.body.items.length, 1)
+  assert.equal(list.body.items[0].confirmed, false)
+
+  const id = list.body.items[0].id
+  const ok = await call('POST', '/api/dividends/confirm', { id, confirmed: true })
+  assert.equal(ok.status, 200)
+
+  const after = await call('GET', '/api/dividends?code=510880')
+  assert.equal(after.body.items[0].confirmed, true)
+  assert.equal(after.body.items[0].source, 'manual')
+
+  const missing = await call('POST', '/api/dividends/confirm', { id: 'nope', confirmed: true })
+  assert.equal(missing.status, 404)
+})
+
+test('回测结果包含复权口径与数据版本', async () => {
+  const repo = await import('./store/repositories.js')
+  const sid = (await call('POST', '/api/strategies', { name: '复权口径', config: validConfig })).body.id
+  const run = await call('POST', '/api/strategies/' + sid + '/backtests', {
+    start: '2024-01-01',
+    end: '2024-06-30',
+    initialCash: 100000,
+  })
+  assert.equal(run.status, 202)
+  // 轮询到结束
+  let detail = null
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 200))
+    detail = (await call('GET', `/api/backtests/${run.body.id}`)).body
+    if (detail.status === 'done' || detail.status === 'failed') break
+  }
+  assert.ok(['done', 'failed'].includes(detail.status))
+  if (detail.status === 'done') {
+    assert.ok(['none', 'qfq'].includes(detail.metrics.adjust))
+    assert.ok(typeof detail.dataVersion === 'string' && detail.dataVersion.length > 0)
+  }
+})
+
 test('策略版本 API：创建、校验、提升 active 并同步策略配置', async () => {
   const created = await call('POST', '/api/strategies', { name: '版本 API', config: validConfig })
   assert.equal(created.status, 201)

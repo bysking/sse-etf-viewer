@@ -1,6 +1,7 @@
 // AI 业务编排：取数 → 事件分析 → 上下文 → 调用模型 → 解析/校验策略。
-import { getKline } from '../data/kline.js'
+import { getKline, applyAdjust, dataVersionOf } from '../data/kline.js'
 import { getShares } from '../sse.js'
+import { listDividends } from '../store/repositories.js'
 import { seriesToBars, analyzeWyckoff } from '../../shared/wyckoff/analyzer.js'
 import { eventStudy } from '../../shared/wyckoff/eventStudy.js'
 import { validateStrategyConfig } from '../../shared/strategy/validate.js'
@@ -11,7 +12,9 @@ import { chatCompletion } from './client.js'
 
 /** 取数并构建上下文（默认使用校准后的 Wyckoff 参数） */
 export async function loadMarketContext({ code, start, end, includeShares = false }) {
-  const k = await getKline(code, start, end)
+  // 与回测/研究页同一口径：只使用人工确认的除息事件做前复权
+  const raw = await getKline(code, start, end)
+  const k = applyAdjust(raw, listDividends(code, { onlyConfirmed: true }))
   const bars = seriesToBars(k.series)
   if (!bars.length) throw new Error(`区间内没有 ${code} 的日 K 数据`)
   let shares = null
@@ -21,7 +24,16 @@ export async function loadMarketContext({ code, start, end, includeShares = fals
   }
   const analysis = analyzeWyckoff(bars, {}, { shares })
   const study = eventStudy(bars, analysis.events, { horizons: [10, 20] })
-  const context = buildMarketContext({ code, start, end, bars, analysis, study })
+  const context = buildMarketContext({
+    code,
+    start,
+    end,
+    bars,
+    analysis,
+    study,
+    adjust: k.adjust,
+    dataVersion: dataVersionOf(k),
+  })
   return { bars, analysis, study, context }
 }
 

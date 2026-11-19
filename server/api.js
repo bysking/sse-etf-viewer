@@ -1,6 +1,7 @@
 // connect 风格中间件：Vite dev / preview 与生产服务器共用
 import { getIndex, getShares, search, todayCST, addDays } from './sse.js'
-import { getKline } from './data/kline.js'
+import { getKline, applyAdjust } from './data/kline.js'
+import { detectDividends } from './data/adjust.js'
 import { getSnap } from './data/snap.js'
 import { getCalendar } from './data/calendar.js'
 import { validateConfig } from '../shared/wyckoff/config.js'
@@ -363,7 +364,9 @@ export function apiMiddleware() {
         const errors = validateConfig(wyckoffCfg)
         if (errors.length) throw new BadRequest(errors.join('；'))
 
-        const k = await getKline(code, start, end)
+        // 与研究页/回测保持同一口径：默认前复权
+        const rawK = await getKline(code, start, end)
+        const k = body.adjust === 'none' ? rawK : applyAdjust(rawK, repo.listDividends(code, { onlyConfirmed: true }))
         const bars = seriesToBars(k.series)
         if (!bars.length) throw new NotFound('区间内没有日 K 数据')
         let shares = body.shares || null
@@ -377,6 +380,8 @@ export function apiMiddleware() {
           code,
           start,
           end,
+          adjust: k.adjust,
+          adjustmentCount: k.adjustmentCount ?? 0,
           bars: k.series,
           summary: summaryOf(analysis),
           events: analysis.events,
@@ -505,7 +510,36 @@ export function apiMiddleware() {
           return send(200, await getIndex(q.code || '000001', isoDate(q.start, 'start'), isoDate(q.end, 'end')))
         case '/api/kline': {
           const code = need(isCode(q.code) && q.code.trim(), '标的代码应为 6 位数字')
-          return send(200, await getKline(code, isoDate(q.start, 'start'), isoDate(q.end, 'end')))
+          const raw = await getKline(code, isoDate(q.start, 'start'), isoDate(q.end, 'end'))
+          // 默认返回前复权口径（仅使用人工确认的除息事件）；adjust=none 取原始价格
+          const wantQfq = q.adjust !== 'none'
+          return send(200, wantQfq ? applyAdjust(raw, repo.listDividends(code, { onlyConfirmed: true })) : raw)
+        }
+        case '/api/dividends': {
+          const code = need(isCode(q.code) && q.code.trim(), '标的代码应为 6 位数字')
+          return send(200, { code, items: repo.listDividends(code) })
+        }
+        case '/api/dividends/confirm': {
+          if (method !== 'POST') return send(405, { error: '不支持的请求方法' })
+          const body = await readJson(req)
+          need(body.id, 'id 必填')
+          if (!repo.setDividendConfirmed(body.id, body.confirmed !== false)) throw new NotFound('除息记录不存在')
+          return send(200, { ok: true })
+        }
+        case '/api/dividends/detect': {
+          if (method !== 'POST') return send(405, { error: '不支持的请求方法' })
+          const body = await readJson(req)
+          const code = need(isCode(body.code) && String(body.code).trim(), '标的代码应为 6 位数字')
+          const end = isoDate(body.end || todayCST(), 'end')
+          const start = isoDate(body.start || addDays(end, -3650), 'start')
+          const [etf, idx] = await Promise.all([getKline(code, start, end), getKline('000001', start, end)])
+          const found = detectDividends(etf.series, idx.series, {
+            minExtraGap: Number(body.minExtraGap) || 0.02,
+            minGap: Number(body.minGap) || 0.02,
+            maxPerYear: Number(body.maxPerYear) || 2,
+          })
+          const added = repo.upsertDividends(code, found, { source: 'auto' })
+          return send(200, { code, detected: found, added, items: repo.listDividends(code) })
         }
         case '/api/snap': {
           const code = need(isCode(q.code) && q.code.trim(), '标的代码应为 6 位数字')

@@ -11,8 +11,11 @@ CREATE TABLE IF NOT EXISTS strategies (
 CREATE TABLE IF NOT EXISTS backtest_runs (
   id TEXT PRIMARY KEY,
   strategy_id TEXT NOT NULL,
+  strategy_version_id TEXT,
   config_snapshot TEXT NOT NULL,
   engine_version TEXT NOT NULL,
+  code_hash TEXT,
+  data_version TEXT,
   symbol TEXT NOT NULL,
   start TEXT NOT NULL,
   end TEXT NOT NULL,
@@ -25,6 +28,9 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_backtest_runs_version
+  ON backtest_runs(strategy_version_id);
 
 CREATE TABLE IF NOT EXISTS paper_accounts (
   id TEXT PRIMARY KEY,
@@ -144,6 +150,23 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
 
 CREATE INDEX IF NOT EXISTS idx_strategy_versions_strategy
   ON strategy_versions(strategy_id, version DESC);
+
+-- 分红/除息事件：yunhq 日K不复权，用它把价格序列换算成前复权
+CREATE TABLE IF NOT EXISTS dividend_events (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  ex_date TEXT NOT NULL,
+  amount REAL NOT NULL,          -- 每股分红金额（元），由跳空幅度反推
+  drop_pct REAL NOT NULL,        -- 相对基准的额外低开幅度，正数
+  source TEXT NOT NULL,          -- auto | manual
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(code, ex_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dividend_code_date
+  ON dividend_events(code, ex_date);
 
 CREATE INDEX IF NOT EXISTS idx_signals_strategy_date
   ON signals(strategy_id, detected_at);

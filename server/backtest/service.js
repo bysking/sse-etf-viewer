@@ -1,6 +1,7 @@
 // 回测任务执行：取数 → 流式分析 → 组合模拟 → 落库。
-import { getKline } from '../data/kline.js'
+import { getKline, applyAdjust, dataVersionOf } from '../data/kline.js'
 import { getShares } from '../sse.js'
+import { listDividends } from '../store/repositories.js'
 import { seriesToBars, analyzeWyckoff } from '../../shared/wyckoff/analyzer.js'
 import { runBacktest } from './engine.js'
 import * as repo from '../store/repositories.js'
@@ -18,7 +19,10 @@ export async function executeBacktest(runId) {
 
   try {
     repo.setRunProgress(runId, 'running', 0.05)
-    const k = await getKline(run.symbol, run.start, run.end)
+    const raw = await getKline(run.symbol, run.start, run.end)
+    // 前复权：消除除息缺口，否则长周期回测会低估收益，并可能误识别派发事件
+    const k = applyAdjust(raw, listDividends(run.symbol, { onlyConfirmed: true }))
+    repo.setRunDataVersion(runId, dataVersionOf(k))
     const bars = seriesToBars(k.series)
     if (!bars.length) throw new Error(`区间内没有 ${run.symbol} 的日 K 数据`)
 
@@ -33,6 +37,7 @@ export async function executeBacktest(runId) {
       repo.setRunProgress(runId, 'running', 0.4)
     }
 
+    // 复权后的价格与成交量口径需在回测结果里可见
     const cfg = run.configSnapshot || {}
     const wyckoffCfg = cfg.wyckoff
       ? { ...cfg.wyckoff, context: cfg.context, shareFlow: cfg.shareFlow }
@@ -48,7 +53,7 @@ export async function executeBacktest(runId) {
       initialCash: cfg.initialCash ?? 100000,
     })
     repo.finishRun(runId, {
-      metrics: result.metrics,
+      metrics: { ...result.metrics, adjust: k.adjust, adjustmentCount: k.adjustmentCount ?? 0 },
       equity: result.equity,
       trades: result.trades,
     })

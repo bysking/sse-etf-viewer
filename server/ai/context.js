@@ -23,7 +23,18 @@ function compactEvidence(ev = {}) {
  * @param {number} [p.maxBars=60]
  * @param {number} [p.maxEvents=20]
  */
-export function buildMarketContext({ code, start, end, bars, analysis, study, maxBars = 60, maxEvents = 20 }) {
+export function buildMarketContext({
+  code,
+  start,
+  end,
+  bars,
+  analysis,
+  study,
+  adjust = 'none',
+  dataVersion = null,
+  maxBars = 60,
+  maxEvents = 20,
+}) {
   const last = analysis.states?.[analysis.states.length - 1] || null
   const counts = {}
   for (const e of analysis.events) counts[e.type] = (counts[e.type] || 0) + 1
@@ -67,6 +78,8 @@ export function buildMarketContext({ code, start, end, bars, analysis, study, ma
     code,
     start,
     end,
+    adjust,
+    dataVersion,
     bars: bars.length,
     lastDate: last?.date ?? null,
     lastClose: last?.close ?? null,
@@ -83,6 +96,7 @@ export function buildMarketContext({ code, start, end, bars, analysis, study, ma
 
   const lines = []
   lines.push(`【标的】${code}  区间 ${start} ~ ${end}  共 ${bars.length} 根日K`)
+  lines.push(`【价格口径】${adjust === 'qfq' ? '前复权（已扣除除息缺口）' : '未复权（除息日存在跳空）'}`)
   if (last) lines.push(`【最新】${last.date} 收盘 ${f(last.close, 3)}；ATR ${f(last.atr)}；量能Z ${f(last.volZ)}`)
   lines.push(`【当前阶段】${last?.phase ?? 'neutral'}（置信度 ${f(last?.confidence)}）`)
   if (last?.range) {

@@ -1,5 +1,7 @@
 node_modules
 dist
 .cache
-data
 
+# 运行期数据目录（SQLite 等），只忽略仓库根目录下的 data/，
+# 不要写成 data，否则会把 server/data/ 源码一起忽略
+/data

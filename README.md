@@ -67,9 +67,14 @@ vite.config.js        挂载 @vitejs/plugin-react 与 server/api.js 中间件
 | `GET /api/search?q=` | 按代码前缀或名称关键词搜索沪市 ETF |
 | `GET /api/shares?code=510300&start=YYYY-MM-DD&end=YYYY-MM-DD` | 某 ETF 的每日份额（万份）。区间内每个工作日都返回；当日无数据为 `null`。最多回最近 5 年（`MAX_RANGE_DAYS=1830`） |
 | `GET /api/index?code=000001&start=&end=` | 某指数日收盘价（`code` 缺省为上证指数 000001） |
+| `GET /api/kline?code=&start=&end=&adjust=` | 日 K（OHLCV）。默认返回前复权；`adjust=none` 取原始价 |
+| `GET /api/dividends?code=` | 某标的的除息事件列表 |
+| `POST /api/dividends/detect` | 自动识别除息候选，入库为「待确认」 |
+| `POST /api/dividends/confirm` | 人工确认/取消除息事件（确认后才参与复权） |
 
 ## 说明
 
+- **价格复权**：行情接口返回的日 K **不复权**，ETF 分红会在除息日留下向下跳空（实测 510880 十年买入持有收益：未复权 25.31% vs 前复权 76.13%）。系统提供除息事件管理：在「策略研究」页点「自动识别」，确认后即参与前复权；K 线、事件研究、回测、AI 上下文使用同一口径。自动识别是启发式结果，必须人工确认。
 - 上交所接口要求 `sse.com.cn` 的 Referer，浏览器无法伪造，所以必须经由本服务端请求。
 - 份额接口一天只能查一次全市场，查询区间越长首次越慢；已过去的交易日会缓存在 `.cache/`，之后秒开。
   近 5 年约 1200 个交易日，首次全冷缓存需数十秒（前端按月分块、边拉边画，可实时看到进度）。

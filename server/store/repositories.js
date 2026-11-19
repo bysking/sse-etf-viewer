@@ -30,8 +30,11 @@ const mapRun = (row) =>
     ? {
         id: row.id,
         strategyId: row.strategy_id,
+        strategyVersionId: row.strategy_version_id ?? null,
         configSnapshot: parse(row.config_snapshot, {}),
         engineVersion: row.engine_version,
+        codeHash: row.code_hash ?? null,
+        dataVersion: row.data_version ?? null,
         symbol: row.symbol,
         start: row.start,
         end: row.end,
@@ -213,15 +216,45 @@ export function setStrategyVersionValidation(id, validation) {
   return getStrategyVersion(id)
 }
 
-export function createRun({ strategyId, configSnapshot, engineVersion, symbol, start, end }) {
+export function createRun({
+  strategyId,
+  strategyVersionId = null,
+  configSnapshot,
+  engineVersion,
+  codeHash = null,
+  dataVersion = null,
+  symbol,
+  start,
+  end,
+}) {
   const db = getDb()
   const id = randomUUID()
   db.prepare(
     `INSERT INTO backtest_runs
-     (id, strategy_id, config_snapshot, engine_version, symbol, start, end, status, progress, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?)`,
-  ).run(id, strategyId, JSON.stringify(configSnapshot ?? {}), engineVersion, symbol, start, end, now())
+     (id, strategy_id, strategy_version_id, config_snapshot, engine_version, code_hash, data_version,
+      symbol, start, end, status, progress, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?)`,
+  ).run(
+    id,
+    strategyId,
+    strategyVersionId,
+    JSON.stringify(configSnapshot ?? {}),
+    engineVersion,
+    codeHash,
+    dataVersion,
+    symbol,
+    start,
+    end,
+    now(),
+  )
   return getRun(id)
+}
+
+export function listRunsByVersion(versionId) {
+  return getDb()
+    .prepare('SELECT * FROM backtest_runs WHERE strategy_version_id = ? ORDER BY created_at DESC')
+    .all(versionId)
+    .map(mapRun)
 }
 
 export function getRun(id) {
@@ -234,6 +267,10 @@ export function listRuns(strategyId) {
     .prepare('SELECT * FROM backtest_runs WHERE strategy_id = ? ORDER BY created_at DESC')
     .all(strategyId)
     .map(mapRun)
+}
+
+export function setRunDataVersion(id, dataVersion) {
+  getDb().prepare('UPDATE backtest_runs SET data_version = ? WHERE id = ?').run(dataVersion ?? null, id)
 }
 
 export function setRunProgress(id, status, progress) {
@@ -285,6 +322,71 @@ export function insertSignal(signal) {
     if (/UNIQUE|constraint/i.test(e.message)) return null
     throw e
   }
+}
+
+/* ---------------------------- 分红 / 除息 ---------------------------- */
+
+const mapDividend = (row) =>
+  row
+    ? {
+        id: row.id,
+        code: row.code,
+        exDate: row.ex_date,
+        amount: row.amount,
+        dropPct: row.drop_pct,
+        source: row.source,
+        confirmed: !!row.confirmed,
+        note: row.note,
+        createdAt: row.created_at,
+      }
+    : null
+
+export function listDividends(code, { onlyConfirmed = false } = {}) {
+  const sql = onlyConfirmed
+    ? 'SELECT * FROM dividend_events WHERE code = ? AND confirmed = 1 ORDER BY ex_date'
+    : 'SELECT * FROM dividend_events WHERE code = ? ORDER BY ex_date'
+  return getDb()
+    .prepare(sql)
+    .all(code)
+    .map(mapDividend)
+}
+
+/** 人工确认/取消确认（confirmed=1 才参与复权） */
+export function setDividendConfirmed(id, confirmed = true) {
+  const r = getDb()
+    .prepare('UPDATE dividend_events SET confirmed = ?, source = ? WHERE id = ?')
+    .run(confirmed ? 1 : 0, 'manual', id)
+  return r.changes > 0
+}
+
+/** 写入自动识别的除息事件；已人工确认的记录不被覆盖 */
+export function upsertDividends(code, items = [], { source = 'auto' } = {}) {
+  const db = getDb()
+  let added = 0
+  for (const it of items) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(it.date || '')) continue
+    const existing = db.prepare('SELECT id, confirmed FROM dividend_events WHERE code = ? AND ex_date = ?').get(code, it.date)
+    if (existing) {
+      if (existing.confirmed) continue
+      db.prepare('UPDATE dividend_events SET amount = ?, drop_pct = ?, source = ? WHERE id = ?').run(
+        Number(it.amount) || 0,
+        Number(it.dropPct) || 0,
+        source,
+        existing.id,
+      )
+      continue
+    }
+    db.prepare(
+      `INSERT INTO dividend_events (id, code, ex_date, amount, drop_pct, source, confirmed, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+    ).run(randomUUID(), code, it.date, Number(it.amount) || 0, Number(it.dropPct) || 0, source, now())
+    added++
+  }
+  return added
+}
+
+export function deleteDividend(id) {
+  return getDb().prepare('DELETE FROM dividend_events WHERE id = ?').run(id).changes > 0
 }
 
 export function getSetting(key, fallback = null) {

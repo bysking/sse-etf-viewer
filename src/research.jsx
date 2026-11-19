@@ -21,6 +21,7 @@ import { api, postApi } from './api.js'
 import { buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } from './researchChart.js'
 import { PARAM_GROUPS, defaultParams, buildWyckoffConfig } from './wyckoffParams.js'
 import { EChart } from './components/EChart.jsx'
+import { DividendPanel } from './components/DividendPanel.jsx'
 
 const { RangePicker } = DatePicker
 const { Title, Text } = Typography
@@ -520,6 +521,8 @@ export function ResearchPage() {
 
         {loading && <div className="prog"><i style={{ width: '100%' }} /></div>}
         <div className="status err">{error}</div>
+
+        <DividendPanel code={code} onChanged={runResearch} />
 
         <section className="panel params-panel">
           <div className="param-head">
