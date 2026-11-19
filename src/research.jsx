@@ -5,6 +5,7 @@ import {
   AutoComplete,
   Button,
   Checkbox,
+  Collapse,
   DatePicker,
   Input,
   InputNumber,
@@ -15,14 +16,16 @@ import {
   Typography,
   message,
 } from 'antd'
-import { ExperimentOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, postApi } from './api.js'
 import { echarts, buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } from './researchChart.js'
+import { PARAM_GROUPS, defaultParams, buildWyckoffConfig } from './wyckoffParams.js'
 
 const { RangePicker } = DatePicker
 const { Title, Text } = Typography
 
 const MAX_DAYS = 1826
+const PARAM_KEY = 'sse-etf-wyckoff-params'
 const PRESETS = [
   { key: '1y', label: '近1年', days: 365 },
   { key: '3y', label: '近3年', days: 1095 },
@@ -53,7 +56,7 @@ const evidenceText = (e) => {
     .join(' ')
 }
 
-function buildStrategy({ code, preset, includeShares }) {
+function buildStrategy({ code, preset, includeShares, wyckoff }) {
   const execution = {
     position: { type: 'riskBased', riskPct: 0.01, maxPositionPct: 1.0 },
     feeRate: 0.0003,
@@ -69,7 +72,7 @@ function buildStrategy({ code, preset, includeShares }) {
   if (preset === 'sos') {
     return {
       symbol: code,
-      wyckoff: {},
+      wyckoff,
       context: { weekly: { enabled: true } },
       shareFlow: { enabled: includeShares },
       entry: {
@@ -138,6 +141,14 @@ export function ResearchPage() {
   const [preset, setPreset] = useState('spring')
   const [initialCash, setInitialCash] = useState(100000)
   const [horizon, setHorizon] = useState(10)
+  const [params, setParams] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PARAM_KEY) || 'null')
+      return saved && typeof saved === 'object' ? { ...defaultParams(), ...saved } : defaultParams()
+    } catch {
+      return defaultParams()
+    }
+  })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -155,11 +166,21 @@ export function ResearchPage() {
   const didAuto = useRef(false)
   const [msgApi, msgCtx] = message.useMessage()
 
+  const wyckoff = useMemo(() => buildWyckoffConfig(params), [params])
+  const paramKey = useMemo(() => JSON.stringify(wyckoff), [wyckoff])
   const currentKey = useMemo(
-    () => `${code}|${fmt(range[0])}|${fmt(range[1])}|${includeShares}`,
-    [code, range, includeShares],
+    () => `${code}|${fmt(range[0])}|${fmt(range[1])}|${includeShares}|${paramKey}`,
+    [code, range, includeShares, paramKey],
   )
   const researchMatches = lastQuery?.key === currentKey
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PARAM_KEY, JSON.stringify(params))
+    } catch {
+      /* 忽略写入失败 */
+    }
+  }, [params])
 
   async function fetchResearch(from = range[0], to = range[1]) {
     const body = {
@@ -169,14 +190,20 @@ export function ResearchPage() {
       includeShares,
       config: {
         symbol: code,
-        wyckoff: {},
+        wyckoff,
         context: { weekly: { enabled: true } },
         shareFlow: { enabled: includeShares },
       },
     }
     const r = await postApi('/api/research/events', body)
     setResearch(r)
-    setLastQuery({ code, start: fmt(from), end: fmt(to), includeShares, key: `${code}|${fmt(from)}|${fmt(to)}|${includeShares}` })
+    setLastQuery({
+      code,
+      start: fmt(from),
+      end: fmt(to),
+      includeShares,
+      key: `${code}|${fmt(from)}|${fmt(to)}|${includeShares}|${paramKey}`,
+    })
     return r
   }
 
@@ -228,7 +255,7 @@ export function ResearchPage() {
     setBt(null)
     setTrades([])
     try {
-      const cfg = buildStrategy({ code, preset, includeShares })
+      const cfg = buildStrategy({ code, preset, includeShares, wyckoff })
       const res = await postApi('/api/backtests/quick', {
         config: cfg,
         start: fmt(range[0]),
@@ -511,6 +538,54 @@ export function ResearchPage() {
 
         {loading && <div className="prog"><i style={{ width: '100%' }} /></div>}
         <div className="status err">{error}</div>
+
+        <section className="panel params-panel">
+          <div className="param-head">
+            <Space size={8} wrap>
+              <Text strong>Wyckoff 参数</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>修改后点「识别事件」重新计算</Text>
+            </Space>
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => setParams(defaultParams())}>
+              恢复默认
+            </Button>
+          </div>
+          <Collapse
+            ghost
+            size="small"
+            items={PARAM_GROUPS.map((g) => ({
+              key: g.title,
+              label: (
+                <Space size={8}>
+                  <Text strong>{g.title}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{g.items.length} 项</Text>
+                </Space>
+              ),
+              children: (
+                <div className="params-grid">
+                  {g.items.map((it) => (
+                    <div className="param" key={it.path}>
+                      <span>{it.label}</span>
+                      <InputNumber
+                        size="small"
+                        value={params[it.path]}
+                        min={it.min}
+                        max={it.max}
+                        step={it.step}
+                        style={{ width: 96 }}
+                        onChange={(v) => {
+                          if (v != null) setParams((p) => ({ ...p, [it.path]: v }))
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ),
+            }))}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            回测使用同一份参数。阈值建议结合事件研究统计反复校准。
+          </Text>
+        </section>
 
         {research?.bars?.length > 0 && (
           <>
