@@ -123,6 +123,28 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL
 );
 
+-- 不可变策略版本：AI 生成 / 手工编辑都先落成 draft，校验后才是 validated，人工审核后 active
+CREATE TABLE IF NOT EXISTS strategy_versions (
+  id TEXT PRIMARY KEY,
+  strategy_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  code TEXT,
+  code_hash TEXT,
+  manifest_json TEXT,
+  engine_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  provenance_json TEXT,
+  validation_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(strategy_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_strategy_versions_strategy
+  ON strategy_versions(strategy_id, version DESC);
+
 CREATE INDEX IF NOT EXISTS idx_signals_strategy_date
   ON signals(strategy_id, detected_at);
 CREATE INDEX IF NOT EXISTS idx_orders_status

@@ -17,7 +17,9 @@
 - `apiKey`：可选，本地 Ollama 等可留空；
 - `temperature` / `maxTokens` 可按需调整。
 
-助手会基于当前标的、区间、事件与最近日 K 生成分析，或生成 Wyckoff DSL 策略；策略会先通过服务端校验，再可直接回测。API Key 只保存在服务端 SQLite，接口返回脱敏。
+助手会基于当前标的、区间、事件与最近日 K 生成分析，或生成 Wyckoff DSL 策略；策略会先通过服务端校验、存为草稿版本，再可直接回测或启用。API Key 只保存在服务端 SQLite，接口返回脱敏。
+
+后端使用官方 `openai` npm 包调用，任何兼容 `/chat/completions` 的服务都可直接接入。
 
 也可用环境变量作为无数据库配置时的回退：`AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`、`AI_TEMPERATURE`、`AI_MAX_TOKENS`。
 

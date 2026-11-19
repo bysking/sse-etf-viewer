@@ -175,6 +175,91 @@ export function apiMiddleware() {
         throw bad('不支持的请求方法')
       }
 
+      const versionsMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/versions$/)
+      if (versionsMatch) {
+        const strategyId = versionsMatch[1]
+        const strategy = repo.getStrategy(strategyId)
+        if (!strategy) throw new NotFound('策略不存在')
+        if (method === 'GET') return send(200, { items: repo.listStrategyVersions(strategyId) })
+        if (method === 'POST') {
+          const body = await readJson(req)
+          const config = checkStrategyConfig(body.config ?? strategy.config)
+          const version = repo.createStrategyVersion({
+            strategyId,
+            kind: body.kind || 'dsl',
+            config,
+            code: body.code ?? null,
+            manifest: body.manifest ?? null,
+            engineVersion: body.engineVersion || strategy.engineVersion,
+            provenance: body.provenance ?? null,
+          })
+          return send(201, version)
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const versionMatch = url.pathname.match(/^\/api\/strategy-versions\/([^/]+)$/)
+      if (versionMatch) {
+        const id = versionMatch[1]
+        if (method === 'GET') {
+          const v = repo.getStrategyVersion(id)
+          if (!v) throw new NotFound('策略版本不存在')
+          return send(200, v)
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const versionValidateMatch = url.pathname.match(/^\/api\/strategy-versions\/([^/]+)\/validate$/)
+      if (versionValidateMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const v = repo.getStrategyVersion(versionValidateMatch[1])
+        if (!v) throw new NotFound('策略版本不存在')
+        const errors = validateStrategyConfig(v.config)
+        const validation = { ok: errors.length === 0, errors, validatedAt: new Date().toISOString() }
+        const updated = repo.setStrategyVersionStatus(v.id, errors.length ? 'draft' : 'validated', { validation })
+        return send(200, updated)
+      }
+
+      const versionPromoteMatch = url.pathname.match(/^\/api\/strategy-versions\/([^/]+)\/promote$/)
+      if (versionPromoteMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const v = repo.getStrategyVersion(versionPromoteMatch[1])
+        if (!v) throw new NotFound('策略版本不存在')
+        const errors = validateStrategyConfig(v.config)
+        if (errors.length) throw new BadRequest(`策略校验未通过：${errors.join('；')}`)
+        const body = await readJson(req)
+        const target = body.status || 'active'
+        if (!['validated', 'active', 'archived'].includes(target)) throw bad('status 仅支持 validated / active / archived')
+        const updated = repo.setStrategyVersionStatus(v.id, target, { validation: { ok: true, errors: [] } })
+        // active 版本同步到策略当前配置并启用，模拟盘/监控读取策略时才是最新逻辑
+        if (target === 'active') repo.updateStrategy(v.strategyId, { config: v.config, enabled: true })
+        if (target === 'archived') repo.updateStrategy(v.strategyId, { enabled: false })
+        return send(200, updated)
+      }
+
+      const versionBacktestMatch = url.pathname.match(/^\/api\/strategy-versions\/([^/]+)\/backtests$/)
+      if (versionBacktestMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const v = repo.getStrategyVersion(versionBacktestMatch[1])
+        if (!v) throw new NotFound('策略版本不存在')
+        const body = await readJson(req)
+        const end = isoDate(body.end || todayCST(), 'end')
+        const start = isoDate(body.start || addDays(end, -365), 'start')
+        if (start > end) throw bad('开始日期不能晚于结束日期')
+        const initialCash = body.initialCash == null ? v.config.initialCash ?? 100000 : Number(body.initialCash)
+        if (!Number.isFinite(initialCash) || initialCash <= 0) throw bad('initialCash 必须是正数')
+        const run = repo.createRun({
+          strategyId: v.strategyId,
+          configSnapshot: { ...v.config, initialCash },
+          engineVersion: v.engineVersion,
+          symbol: v.config.symbol,
+          start,
+          end,
+        })
+        startJob(run.id, () => executeBacktest(run.id))
+        return send(202, { id: run.id, status: run.status, versionId: v.id, version: v.version })
+      }
+
       const backtestsMatch = url.pathname.match(/^\/api\/strategies\/([^/]+)\/backtests$/)
       if (backtestsMatch) {
         if (method !== 'POST') throw bad('不支持的请求方法')
@@ -357,7 +442,36 @@ export function apiMiddleware() {
         if (!aiConfig) throw new BadRequest('请先配置 AI 模型')
         const base = aiRequestBase(body)
         const instructions = String(body.instructions || '').slice(0, 2000)
-        return send(200, await generateStrategy({ aiConfig, ...base, instructions }))
+        const result = await generateStrategy({ aiConfig, ...base, instructions })
+        // 校验通过的 AI 策略立即落成 draft 版本，避免“页面刷新即丢失”，并保留模型来源
+        let version = null
+        if (result.strategyConfig && result.validation?.ok) {
+          const name = String(result.strategyConfig.name || `${base.code} AI 策略`).slice(0, 80)
+          const strategy = repo.createStrategy({ name, config: result.strategyConfig, engineVersion: 'wyckoff-v1', enabled: false })
+          version = repo.createStrategyVersion({
+            strategyId: strategy.id,
+            kind: 'dsl',
+            config: result.strategyConfig,
+            manifest: {
+              schemaVersion: result.strategyConfig.schemaVersion ?? 1,
+              symbol: result.strategyConfig.symbol,
+              data: {
+                usesShares: Boolean(body.includeShares),
+                usesWeekly: JSON.stringify(result.strategyConfig).includes('"weekly"'),
+              },
+            },
+            provenance: {
+              source: 'ai',
+              model: result.model || aiConfig.model,
+              prompt: instructions,
+              code: String(base.code),
+              range: { start: base.start, end: base.end },
+              generatedAt: new Date().toISOString(),
+            },
+            validation: result.validation,
+          })
+        }
+        return send(200, { ...result, draft: version ? { strategyId: version.strategyId, versionId: version.id, version: version.version } : null })
       }
 
       if (url.pathname === '/api/ai/chat') {

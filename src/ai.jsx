@@ -231,10 +231,14 @@ export function AiPage() {
       pushMessage({ role: 'assistant', content: r.content })
       setContextText(r.contextText || '')
       setContextSummary(r.contextSummary || null)
-      setStrategyResult(r)
+      setStrategyResult(
+        r.draft ? { ...r, draft: { ...r.draft, status: 'draft' } } : r,
+      )
       setBt(null)
       setBtError('')
       setTrades([])
+      if (r.draft) msgApi.success(`已保存为草稿 v${r.draft.version}，校验通过后可回测或启用`)
+      else if (r.validation && !r.validation.ok) msgApi.warning('AI 输出未通过校验，请继续追问或调整')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -264,6 +268,42 @@ export function AiPage() {
     }
   }
 
+  /** 轮询回测任务直到完成/失败/超时 */
+  function pollRun(runId) {
+    const my = ++btToken.current
+    const started = Date.now()
+    const poll = async () => {
+      if (my !== btToken.current) return
+      try {
+        const run = await api(`/api/backtests/${runId}`)
+        if (my !== btToken.current) return
+        setBt(run)
+        if (run.status === 'done') {
+          setTrades(run.trades || [])
+          setBtLoading(false)
+          return
+        }
+        if (run.status === 'failed') {
+          setBtError(run.error || '回测失败')
+          setBtLoading(false)
+          return
+        }
+        if (Date.now() - started > 120000) {
+          setBtError('回测超时')
+          setBtLoading(false)
+          return
+        }
+        pollRef.current = setTimeout(poll, 500)
+      } catch (e) {
+        if (my === btToken.current) {
+          setBtError(e.message)
+          setBtLoading(false)
+        }
+      }
+    }
+    poll()
+  }
+
   const runBacktest = async () => {
     const cfg = strategyResult?.strategyConfig
     if (!cfg || !strategyResult?.validation?.ok) return
@@ -278,38 +318,7 @@ export function AiPage() {
         end: fmt(range[1]),
         initialCash: Number(initialCash) || 100000,
       })
-      const my = ++btToken.current
-      const started = Date.now()
-      const poll = async () => {
-        if (my !== btToken.current) return
-        try {
-          const run = await api(`/api/backtests/${res.id}`)
-          if (my !== btToken.current) return
-          setBt(run)
-          if (run.status === 'done') {
-            setTrades(run.trades || [])
-            setBtLoading(false)
-            return
-          }
-          if (run.status === 'failed') {
-            setBtError(run.error || '回测失败')
-            setBtLoading(false)
-            return
-          }
-          if (Date.now() - started > 120000) {
-            setBtError('回测超时')
-            setBtLoading(false)
-            return
-          }
-          pollRef.current = setTimeout(poll, 500)
-        } catch (e) {
-          if (my === btToken.current) {
-            setBtError(e.message)
-            setBtLoading(false)
-          }
-        }
-      }
-      poll()
+      pollRun(res.id)
     } catch (e) {
       setBtError(e.message)
       setBtLoading(false)
@@ -322,6 +331,39 @@ export function AiPage() {
       msgApi.success('已复制策略 JSON')
     } catch {
       msgApi.error('复制失败，请手动选择 JSON')
+    }
+  }
+
+  /** 回测当前草稿版本；用版本接口可让回测与版本号绑定 */
+  const runVersionBacktest = async () => {
+    const draft = strategyResult?.draft
+    if (!draft) return runBacktest()
+    setBtLoading(true)
+    setBtError('')
+    setBt(null)
+    setTrades([])
+    try {
+      const res = await postApi(`/api/strategy-versions/${draft.versionId}/backtests`, {
+        start: fmt(range[0]),
+        end: fmt(range[1]),
+        initialCash: Number(initialCash) || 100000,
+      })
+      pollRun(res.id)
+    } catch (e) {
+      setBtError(e.message)
+      setBtLoading(false)
+    }
+  }
+
+  const promoteDraft = async () => {
+    const draft = strategyResult?.draft
+    if (!draft) return
+    try {
+      const v = await postApi(`/api/strategy-versions/${draft.versionId}/promote`, { status: 'active' })
+      setStrategyResult((s) => ({ ...s, draft: { ...s.draft, status: v.status } }))
+      msgApi.success(`已启用策略版本 v${v.version}，可在「策略研究」中查看与回测`)
+    } catch (e) {
+      msgApi.error(e.message)
     }
   }
 
@@ -503,11 +545,14 @@ export function AiPage() {
               <Title level={4} style={{ margin: 0 }}>
                 策略
               </Title>
-              {strategyResult && (
-                <Tag color={strategyResult.validation?.ok ? 'green' : 'red'}>
-                  {strategyResult.validation?.ok ? '校验通过' : '校验失败'}
-                </Tag>
-              )}
+              <Space size={6} wrap>
+                {strategyResult?.draft && <Tag color="blue">草稿 v{strategyResult.draft.version}</Tag>}
+                {strategyResult && (
+                  <Tag color={strategyResult.validation?.ok ? 'green' : 'red'}>
+                    {strategyResult.validation?.ok ? '校验通过' : '校验失败'}
+                  </Tag>
+                )}
+              </Space>
             </div>
             {!strategyResult ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="生成策略后显示 DSL JSON 和回测入口" />
@@ -550,10 +595,16 @@ export function AiPage() {
                     icon={<PlayCircleOutlined />}
                     disabled={!strategyResult.validation?.ok}
                     loading={btLoading}
-                    onClick={runBacktest}
+                    onClick={runVersionBacktest}
                   >
-                    用此策略回测
+                    {strategyResult.draft ? '回测此版本' : '用此策略回测'}
                   </Button>
+                  {strategyResult.draft && strategyResult.draft.status === 'draft' && (
+                    <Button type="primary" ghost onClick={promoteDraft}>
+                      启用策略
+                    </Button>
+                  )}
+                  {strategyResult.draft && strategyResult.draft.status === 'active' && <Tag color="green">已启用</Tag>}
                   <Button icon={<CopyOutlined />} onClick={copyStrategy}>
                     复制 JSON
                   </Button>

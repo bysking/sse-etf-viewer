@@ -122,6 +122,59 @@ test('未知回测任务返回 404', async () => {
   assert.equal(r.status, 404)
 })
 
+test('策略版本 API：创建、校验、提升 active 并同步策略配置', async () => {
+  const created = await call('POST', '/api/strategies', { name: '版本 API', config: validConfig })
+  assert.equal(created.status, 201)
+  const sid = created.body.id
+
+  const v1 = await call('POST', `/api/strategies/${sid}/versions`, { config: validConfig })
+  assert.equal(v1.status, 201)
+  assert.equal(v1.body.version, 1)
+  assert.equal(v1.body.status, 'draft')
+
+  const invalid = await call('POST', `/api/strategies/${sid}/versions`, {
+    config: { ...validConfig, entry: { all: [{ event: 'Nope' }] } },
+  })
+  assert.equal(invalid.status, 400)
+
+  const validated = await call('POST', `/api/strategy-versions/${v1.body.id}/validate`)
+  assert.equal(validated.status, 200)
+  assert.equal(validated.body.status, 'validated')
+  assert.equal(validated.body.validation.ok, true)
+
+  const promoted = await call('POST', `/api/strategy-versions/${v1.body.id}/promote`, { status: 'active' })
+  assert.equal(promoted.status, 200)
+  assert.equal(promoted.body.status, 'active')
+
+  const strategy = await call('GET', `/api/strategies/${sid}`)
+  assert.equal(strategy.body.config.symbol, '510300')
+  assert.equal(strategy.body.enabled, true, 'active 版本应同时启用策略')
+
+  await call('POST', `/api/strategy-versions/${v1.body.id}/promote`, { status: 'archived' })
+  const archived = await call('GET', `/api/strategies/${sid}`)
+  assert.equal(archived.body.enabled, false, '归档后应停用策略')
+
+  const list = await call('GET', `/api/strategies/${sid}/versions`)
+  assert.equal(list.status, 200)
+  assert.equal(list.body.items.length, 1)
+
+  const one = await call('GET', `/api/strategy-versions/${v1.body.id}`)
+  assert.equal(one.status, 200)
+  assert.equal(one.body.id, v1.body.id)
+
+  const missing = await call('GET', '/api/strategy-versions/nope')
+  assert.equal(missing.status, 404)
+})
+
+test('策略版本 API：未通过校验的版本不能 promote', async () => {
+  const created = await call('POST', '/api/strategies', { name: '非法版本', config: validConfig })
+  const v = await call('POST', `/api/strategies/${created.body.id}/versions`, {
+    config: { ...validConfig, execution: { ...validConfig.execution, position: { type: 'riskBased' } }, exit: { any: [{ event: 'SOS' }] } },
+  })
+  // 缺少 stopLoss，创建时就会被拒绝
+  assert.equal(v.status, 400)
+})
+
 test('策略编写 schema 可供 AI 读取', async () => {
   const r = await call('GET', '/api/strategy-authoring/schema')
   assert.equal(r.status, 200)

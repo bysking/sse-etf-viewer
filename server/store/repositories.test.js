@@ -29,6 +29,50 @@ test('策略 CRUD', () => {
   assert.equal(repo.getStrategy(s.id), null)
 })
 
+test('策略版本：递增、不可变、active 唯一', () => {
+  const s = repo.createStrategy({ name: '版本测试', config: { symbol: '510300' } })
+
+  const v1 = repo.createStrategyVersion({
+    strategyId: s.id,
+    config: { symbol: '510300', entry: { all: [{ event: 'Spring' }] } },
+    provenance: { source: 'ai', model: 'mock-model' },
+  })
+  assert.equal(v1.version, 1)
+  assert.equal(v1.status, 'draft')
+  assert.equal(v1.provenance.source, 'ai')
+
+  const v2 = repo.createStrategyVersion({ strategyId: s.id, config: { symbol: '510050' } })
+  assert.equal(v2.version, 2)
+
+  const list = repo.listStrategyVersions(s.id)
+  assert.equal(list.length, 2)
+  assert.equal(list[0].version, 2, '应按版本倒序')
+  assert.equal(repo.getLatestStrategyVersion(s.id).version, 2)
+
+  // 状态推进
+  const validated = repo.setStrategyVersionStatus(v1.id, 'validated', { validation: { ok: true, errors: [] } })
+  assert.equal(validated.status, 'validated')
+  assert.equal(validated.validation.ok, true)
+
+  assert.equal(repo.setStrategyVersionStatus(v1.id, 'active').status, 'active')
+  assert.equal(repo.getActiveStrategyVersion(s.id).id, v1.id)
+
+  // 同一策略只能有一个 active
+  repo.setStrategyVersionStatus(v2.id, 'active')
+  assert.equal(repo.getActiveStrategyVersion(s.id).id, v2.id)
+  assert.equal(repo.getStrategyVersion(v1.id).status, 'archived')
+
+  // 内容不可变：状态变更不影响 config
+  assert.equal(repo.getStrategyVersion(v2.id).config.symbol, '510050')
+
+  assert.throws(() => repo.createStrategyVersion({ strategyId: s.id, kind: 'python' }), /kind/)
+  assert.throws(() => repo.setStrategyVersionStatus(v1.id, 'deleted'), /未知版本状态/)
+
+  // 删除策略时清理版本，避免残留
+  assert.equal(repo.deleteStrategy(s.id), true)
+  assert.equal(repo.listStrategyVersions(s.id).length, 0)
+})
+
 test('回测任务状态流转与 JSON 结果', () => {
   const run = repo.createRun({
     strategyId: 's1',

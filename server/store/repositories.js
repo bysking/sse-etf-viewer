@@ -82,8 +82,135 @@ export function updateStrategy(id, patch = {}) {
 }
 
 export function deleteStrategy(id) {
+  getDb().prepare('DELETE FROM strategy_versions WHERE strategy_id = ?').run(id)
   const r = getDb().prepare('DELETE FROM strategies WHERE id = ?').run(id)
   return r.changes > 0
+}
+
+/* ---------------------------- 策略版本 ---------------------------- */
+
+export const VERSION_STATUSES = ['draft', 'validated', 'active', 'archived']
+
+const mapVersion = (row) =>
+  row
+    ? {
+        id: row.id,
+        strategyId: row.strategy_id,
+        version: row.version,
+        kind: row.kind,
+        config: parse(row.config_json, {}),
+        code: row.code ?? null,
+        codeHash: row.code_hash ?? null,
+        manifest: parse(row.manifest_json, null),
+        engineVersion: row.engine_version,
+        status: row.status,
+        provenance: parse(row.provenance_json, null),
+        validation: parse(row.validation_json, null),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    : null
+
+function nextVersion(strategyId) {
+  const row = getDb()
+    .prepare('SELECT MAX(version) AS v FROM strategy_versions WHERE strategy_id = ?')
+    .get(strategyId)
+  return (Number(row?.v) || 0) + 1
+}
+
+export function createStrategyVersion({
+  strategyId,
+  kind = 'dsl',
+  config,
+  code = null,
+  codeHash = null,
+  manifest = null,
+  engineVersion = 'wyckoff-v1',
+  status = 'draft',
+  provenance = null,
+  validation = null,
+}) {
+  if (!VERSION_STATUSES.includes(status)) throw new Error(`未知版本状态：${status}`)
+  if (kind !== 'dsl' && kind !== 'js') throw new Error('kind 仅支持 dsl / js')
+  const db = getDb()
+  const id = randomUUID()
+  const ts = now()
+  const version = nextVersion(strategyId)
+  db.prepare(
+    `INSERT INTO strategy_versions
+     (id, strategy_id, version, kind, config_json, code, code_hash, manifest_json,
+      engine_version, status, provenance_json, validation_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    strategyId,
+    version,
+    kind,
+    JSON.stringify(config ?? {}),
+    code,
+    codeHash,
+    manifest == null ? null : JSON.stringify(manifest),
+    engineVersion,
+    status,
+    provenance == null ? null : JSON.stringify(provenance),
+    validation == null ? null : JSON.stringify(validation),
+    ts,
+    ts,
+  )
+  return getStrategyVersion(id)
+}
+
+export function getStrategyVersion(id) {
+  return mapVersion(getDb().prepare('SELECT * FROM strategy_versions WHERE id = ?').get(id))
+}
+
+export function listStrategyVersions(strategyId) {
+  return getDb()
+    .prepare('SELECT * FROM strategy_versions WHERE strategy_id = ? ORDER BY version DESC')
+    .all(strategyId)
+    .map(mapVersion)
+}
+
+export function getLatestStrategyVersion(strategyId) {
+  return mapVersion(
+    getDb()
+      .prepare('SELECT * FROM strategy_versions WHERE strategy_id = ? ORDER BY version DESC LIMIT 1')
+      .get(strategyId),
+  )
+}
+
+export function getActiveStrategyVersion(strategyId) {
+  return mapVersion(
+    getDb()
+      .prepare(`SELECT * FROM strategy_versions WHERE strategy_id = ? AND status = 'active' ORDER BY version DESC LIMIT 1`)
+      .get(strategyId),
+  )
+}
+
+/** 版本内容不可变；只允许更新状态、校验结果和 provenance */
+export function setStrategyVersionStatus(id, status, { validation = null } = {}) {
+  if (!VERSION_STATUSES.includes(status)) throw new Error(`未知版本状态：${status}`)
+  const cur = getStrategyVersion(id)
+  if (!cur) return null
+  if (status === 'active') {
+    // 同一策略只能有一个 active 版本
+    getDb()
+      .prepare(`UPDATE strategy_versions SET status = 'archived', updated_at = ? WHERE strategy_id = ? AND status = 'active'`)
+      .run(now(), cur.strategyId)
+  }
+  getDb()
+    .prepare('UPDATE strategy_versions SET status = ?, validation_json = COALESCE(?, validation_json), updated_at = ? WHERE id = ?')
+    .run(status, validation == null ? null : JSON.stringify(validation), now(), id)
+  return getStrategyVersion(id)
+}
+
+export function setStrategyVersionValidation(id, validation) {
+  const cur = getStrategyVersion(id)
+  if (!cur) return null
+  getDb()
+    .prepare('UPDATE strategy_versions SET validation_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(validation ?? null), now(), id)
+  return getStrategyVersion(id)
 }
 
 export function createRun({ strategyId, configSnapshot, engineVersion, symbol, start, end }) {

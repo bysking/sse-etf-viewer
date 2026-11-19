@@ -159,15 +159,37 @@
 ```text
 AI 读取 schema → 输出策略 JSON + 解释
 → 服务端解析 + validateStrategyConfig
+→ 校验通过自动落 draft 版本（策略 enabled=false）
 → 用户在 AI 页面预览 JSON
-→ “用此策略回测”（/api/backtests/quick）
+→ “回测此版本”（/api/strategy-versions/:id/backtests）
 → 人工查看样本内/样本外结果
-→ 保存为策略版本（draft）
-→ 人工审核后 active
+→ “启用策略”（promote → active，策略 enabled=true）
 → 模拟盘 → 监控
 ```
 
-当前 AI 页面已实现前四步；版本保存与审核属于 Phase A/B。
+AI 页面已实现以上全部步骤；`active` 目前只表示“策略已启用”，收盘后调度与模拟盘在 P3 接入。
+
+## 6.1 策略版本
+
+AI 生成且校验通过的策略会自动落成 `draft` 版本（不会自动启用）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/strategies/:id/versions` | 版本列表（倒序） |
+| POST | `/api/strategies/:id/versions` | 新建版本（内容不可变，版本号自增） |
+| GET | `/api/strategy-versions/:id` | 版本详情 |
+| POST | `/api/strategy-versions/:id/validate` | 校验：通过则 `draft → validated` |
+| POST | `/api/strategy-versions/:id/promote` | 推进状态：`validated` / `active` / `archived` |
+| POST | `/api/strategy-versions/:id/backtests` | 按版本回测，结果与版本绑定 |
+
+状态语义：
+
+- `draft`：AI 生成或人工新建，未校验；
+- `validated`：通过结构校验，可回测；
+- `active`：人工启用，同一策略同时只有一个 active；同步策略配置并 `enabled=true`；
+- `archived`：历史版本，策略被停用。
+
+版本内容（`config` / `code`）不可修改；要改只能新建版本，保证历史回测可复现。
 
 ## 7. 安全与限制
 
