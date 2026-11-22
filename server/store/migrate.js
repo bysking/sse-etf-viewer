@@ -13,6 +13,7 @@ const COLUMNS = [
   ['backtest_runs', 'data_version', 'TEXT'],
   ['paper_orders', 'stop_level', 'REAL'],
   ['strategy_state', 'state_json', 'TEXT'],
+  ['training_trades', 'pnl', 'REAL'],
 ]
 
 function existingColumns(db, table) {

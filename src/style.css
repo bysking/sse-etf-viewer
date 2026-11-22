@@ -66,6 +66,26 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
 .param-label.changed .param-hint-icon{opacity:.9}
 .suggest-field{display:inline-flex;align-items:center;gap:6px}
 
+/* 训练图表：鼠标右键推进区域，给出可交互的暗示 */
+.training-chart{position:relative;border-radius:10px;outline:1px dashed transparent;transition:outline-color .15s}
+.training-chart:hover{outline-color:var(--line)}
+.training-chart::after{
+  content:"按 → 或鼠标右键推进，按住连发";
+  position:absolute;top:6px;right:10px;font-size:11px;color:var(--muted);
+  background:var(--card);padding:2px 6px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .15s;
+}
+.training-chart:hover::after{opacity:.85}
+
+/* 键盘诊断面板 */
+.keydiag{margin-top:10px;padding:10px 12px;border:1px solid var(--idx);border-radius:10px;background:var(--bg)}
+.keydiag-warn{margin:4px 0 8px;padding:6px 10px;border-radius:8px;background:rgba(245,158,11,.12);color:var(--text);font-size:12px;line-height:1.6}
+.keydiag-tablewrap{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.keydiag-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.keydiag-table th{position:sticky;top:0;background:var(--card);text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-weight:500;white-space:nowrap}
+.keydiag-table td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.keydiag-table tr.hit td{background:rgba(18,161,80,.10)}
+.keydiag-table code{font-size:11px;color:var(--accent)}
+
 /* 事件释义 icon 与浮层 */
 .eventdoc-icon{font-size:12px;opacity:.7;cursor:pointer;margin-left:4px}
 .eventdoc-icon:hover{opacity:1;color:var(--accent)}

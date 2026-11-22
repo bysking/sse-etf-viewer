@@ -380,3 +380,67 @@ test('快速回测路由先于 /api/backtests/:id 匹配，并校验配置', asy
   assert.equal(r.status, 400)
   assert.match(r.body.error, /6 位代码/)
 })
+
+/* ---------------- 人工模拟训练 ---------------- */
+
+test('训练 API：周期清单', async () => {
+  const r = await call('GET', '/api/training/timeframes')
+  assert.equal(r.status, 200)
+  const keys = r.body.items.map((x) => x.key)
+  for (const k of ['1w', '1d', '60m', '30m', '15m', '5m']) assert.ok(keys.includes(k), `缺少周期 ${k}`)
+})
+
+test('训练 API：参数校验', async () => {
+  const noUser = await call('GET', '/api/training/sessions')
+  assert.equal(noUser.status, 400)
+  assert.match(noUser.body.error, /user/)
+
+  const noUserPost = await call('POST', '/api/training/sessions', { symbol: '510300' })
+  assert.equal(noUserPost.status, 400)
+  assert.match(noUserPost.body.error, /用户名/)
+
+  const badSymbol = await call('POST', '/api/training/sessions', { user: 'u1', symbol: '123' })
+  assert.equal(badSymbol.status, 400)
+  assert.match(badSymbol.body.error, /6 位数字/)
+
+  const badTf = await call('POST', '/api/training/sessions', {
+    user: 'u1',
+    symbol: '510300',
+    timeframe: '3m',
+  })
+  assert.equal(badTf.status, 400)
+  assert.match(badTf.body.error, /不支持的周期/)
+
+  const badCash = await call('POST', '/api/training/sessions', {
+    user: 'u1',
+    symbol: '510300',
+    timeframe: '1d',
+    initialCash: -1,
+  })
+  assert.equal(badCash.status, 400)
+
+  const badPct = await call('POST', '/api/training/sessions', {
+    user: 'u1',
+    symbol: '510300',
+    timeframe: '1d',
+    initialCash: 100000,
+    positionPct: 2,
+  })
+  assert.equal(badPct.status, 400)
+  assert.match(badPct.body.error, /仓位比例/)
+})
+
+test('训练 API：不存在的会话返回 404', async () => {
+  const r = await call('GET', '/api/training/sessions/nope?user=u1')
+  assert.equal(r.status, 404)
+  const d = await call('DELETE', '/api/training/sessions/nope?user=u1')
+  assert.equal(d.status, 404)
+  const adv = await call('POST', '/api/training/sessions/nope/advance', { user: 'u1', steps: 1 })
+  assert.equal(adv.status, 404)
+})
+
+test('训练 API：推进参数校验', async () => {
+  const r = await call('POST', '/api/training/sessions/whatever/advance', { user: 'u1', steps: 0 })
+  assert.equal(r.status, 400)
+  assert.match(r.body.error, /steps/)
+})

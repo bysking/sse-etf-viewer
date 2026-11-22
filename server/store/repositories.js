@@ -591,3 +591,184 @@ export function listSignals(strategyId, limit = 100) {
     createdAt: r.created_at,
   }))
 }
+
+/* ---------------------------- 人工模拟训练 ---------------------------- */
+
+export const TRAINING_TIMEFRAMES = ['1w', '1d', '60m', '30m', '15m', '5m']
+export const TRAINING_STATUSES = ['active', 'finished']
+
+const mapTrainingSession = (row) =>
+  row
+    ? {
+        id: row.id,
+        userName: row.user_name,
+        symbol: row.symbol,
+        symbolName: row.symbol_name,
+        timeframe: row.timeframe,
+        startDate: row.start_date,
+        actualStart: row.actual_start,
+        initialCash: row.initial_cash,
+        positionPct: row.position_pct,
+        cursor: row.cursor,
+        cash: row.cash,
+        units: row.units,
+        avgCost: row.avg_cost,
+        title: row.title,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    : null
+
+const mapTrainingTrade = (row) =>
+  row
+    ? {
+        id: row.id,
+        sessionId: row.session_id,
+        seq: row.seq,
+        barIndex: row.bar_index,
+        barTs: row.bar_ts,
+        side: row.side,
+        qty: row.qty,
+        price: row.price,
+        cashAfter: row.cash_after,
+        unitsAfter: row.units_after,
+        avgCostAfter: row.avg_cost_after,
+        note: row.note,
+        createdAt: row.created_at,
+        pnl: row.pnl ?? null,
+      }
+    : null
+
+/** 规范化用户名：去空白、限长；空字符串直接拒绝（用于隔离数据） */
+export function normalizeUserName(value) {
+  const name = String(value ?? '').trim().slice(0, 40)
+  if (!name) throw new Error('用户名不能为空')
+  return name
+}
+
+export function createTrainingSession({
+  userName,
+  symbol,
+  symbolName = null,
+  timeframe,
+  startDate,
+  actualStart,
+  initialCash,
+  positionPct,
+  cursor = 0,
+  title = null,
+}) {
+  if (!TRAINING_TIMEFRAMES.includes(timeframe)) throw new Error(`不支持的周期：${timeframe}`)
+  const user = normalizeUserName(userName)
+  const db = getDb()
+  const id = randomUUID()
+  const ts = now()
+  db.prepare(
+    `INSERT INTO training_sessions
+     (id, user_name, symbol, symbol_name, timeframe, start_date, actual_start, initial_cash,
+      position_pct, cursor, cash, units, avg_cost, title, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'active', ?, ?)`,
+  ).run(
+    id,
+    user,
+    String(symbol),
+    symbolName,
+    timeframe,
+    startDate,
+    actualStart,
+    Number(initialCash),
+    Number(positionPct),
+    Math.max(0, Math.trunc(cursor)),
+    Number(initialCash),
+    title,
+    ts,
+    ts,
+  )
+  return getTrainingSession(id)
+}
+
+export function getTrainingSession(id, { userName = null } = {}) {
+  const row = getDb().prepare('SELECT * FROM training_sessions WHERE id = ?').get(id)
+  if (!row) return null
+  // 指定用户名时做归属校验，避免看到别人的记录
+  if (userName != null && row.user_name !== normalizeUserName(userName)) return null
+  return mapTrainingSession(row)
+}
+
+export function listTrainingSessions(userName, { limit = 100 } = {}) {
+  const user = normalizeUserName(userName)
+  return getDb()
+    .prepare('SELECT * FROM training_sessions WHERE user_name = ? ORDER BY created_at DESC LIMIT ?')
+    .all(user, limit)
+    .map(mapTrainingSession)
+}
+
+/** 推进游标 */
+export function advanceTrainingCursor(id, cursor) {
+  const cur = getTrainingSession(id)
+  if (!cur) return null
+  getDb()
+    .prepare('UPDATE training_sessions SET cursor = ?, updated_at = ? WHERE id = ?')
+    .run(Math.max(0, Math.trunc(cursor)), now(), id)
+  return getTrainingSession(id)
+}
+
+/** 写入一笔成交并同步账户状态（同一事务语义：先校验再写） */
+export function insertTrainingTrade({
+  sessionId,
+  barIndex,
+  barTs,
+  side,
+  qty,
+  price,
+  cash,
+  units,
+  avgCost,
+  pnl = null,
+  note = null,
+}) {
+  const db = getDb()
+  const session = getTrainingSession(sessionId)
+  if (!session) throw new Error('训练会话不存在')
+  const seq =
+    (Number(
+      db.prepare('SELECT MAX(seq) AS m FROM training_trades WHERE session_id = ?').get(sessionId)?.m,
+    ) || 0) + 1
+  const id = randomUUID()
+  const ts = now()
+  db.prepare(
+    `INSERT INTO training_trades
+     (id, session_id, seq, bar_index, bar_ts, side, qty, price, cash_after, units_after, avg_cost_after, pnl, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, sessionId, seq, barIndex, barTs, side, qty, price, cash, units, avgCost, pnl, note, ts)
+  db.prepare(
+    'UPDATE training_sessions SET cash = ?, units = ?, avg_cost = ?, updated_at = ? WHERE id = ?',
+  ).run(cash, units, avgCost, ts, sessionId)
+  return mapTrainingTrade(db.prepare('SELECT * FROM training_trades WHERE id = ?').get(id))
+}
+
+export function listTrainingTrades(sessionId) {
+  return getDb()
+    .prepare('SELECT * FROM training_trades WHERE session_id = ? ORDER BY seq')
+    .all(sessionId)
+    .map(mapTrainingTrade)
+}
+
+export function finishTrainingSession(id, { status = 'finished', title = undefined } = {}) {
+  if (!TRAINING_STATUSES.includes(status)) throw new Error(`未知训练状态：${status}`)
+  const cur = getTrainingSession(id)
+  if (!cur) return null
+  getDb()
+    .prepare('UPDATE training_sessions SET status = ?, title = ?, updated_at = ? WHERE id = ?')
+    .run(status, title === undefined ? cur.title : title, now(), id)
+  return getTrainingSession(id)
+}
+
+export function deleteTrainingSession(id, { userName = null } = {}) {
+  const cur = getTrainingSession(id, { userName })
+  if (!cur) return false
+  const db = getDb()
+  db.prepare('DELETE FROM training_trades WHERE session_id = ?').run(id)
+  return db.prepare('DELETE FROM training_sessions WHERE id = ?').run(id).changes > 0
+}

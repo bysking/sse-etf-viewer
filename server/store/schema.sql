@@ -193,3 +193,48 @@ CREATE INDEX IF NOT EXISTS idx_orders_status
   ON paper_orders(status, signal_date);
 CREATE INDEX IF NOT EXISTS idx_notify_log_created
   ON notify_log(created_at);
+
+-- 人工模拟训练：一次「从头开始按 K 线推进做决策」的练习会话。
+-- user_name 只是输入的用户名（无密码、无鉴权），用于把不同人的记录隔开。
+CREATE TABLE IF NOT EXISTS training_sessions (
+  id TEXT PRIMARY KEY,
+  user_name TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  symbol_name TEXT,
+  timeframe TEXT NOT NULL,          -- 1w | 1d | 60m | 30m | 15m | 5m
+  start_date TEXT NOT NULL,         -- 用户指定的开始训练日期
+  actual_start TEXT NOT NULL,       -- 实际第一根 bar 的时间（数据不足时会晚于 start_date）
+  initial_cash REAL NOT NULL,
+  position_pct REAL NOT NULL,       -- 每次买入使用「当前现金 × 该比例」
+  cursor INTEGER NOT NULL DEFAULT 0,-- 已推进到第几根 bar（不包含）
+  cash REAL NOT NULL,
+  units INTEGER NOT NULL DEFAULT 0,
+  avg_cost REAL NOT NULL DEFAULT 0,
+  title TEXT,
+  status TEXT NOT NULL DEFAULT 'active', -- active | finished
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_sessions_user
+  ON training_sessions(user_name, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS training_trades (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,             -- 该会话内第几笔
+  bar_index INTEGER NOT NULL,       -- 成交时推进到的 bar 下标
+  bar_ts TEXT NOT NULL,             -- 成交 bar 的时间键
+  side TEXT NOT NULL,               -- buy | sell
+  qty INTEGER NOT NULL,
+  price REAL NOT NULL,
+  cash_after REAL NOT NULL,
+  units_after INTEGER NOT NULL,
+  avg_cost_after REAL NOT NULL,
+  pnl REAL,                         -- 仅卖出时有值（已实现盈亏）
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_trades_session
+  ON training_trades(session_id, seq);

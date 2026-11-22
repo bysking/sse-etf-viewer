@@ -27,6 +27,7 @@ const ResearchPage = lazy(() => import('./research.jsx').then((m) => ({ default:
 const AiPage = lazy(() => import('./ai.jsx').then((m) => ({ default: m.AiPage })))
 const MonitorPage = lazy(() => import('./monitor.jsx').then((m) => ({ default: m.MonitorPage })))
 const StrategiesPage = lazy(() => import('./strategies.jsx').then((m) => ({ default: m.StrategiesPage })))
+const TrainingPage = lazy(() => import('./training.jsx').then((m) => ({ default: m.TrainingPage })))
 
 const { RangePicker } = DatePicker
 const { Text, Title } = Typography
@@ -553,7 +554,7 @@ function RootApp() {
   const [page, setPage] = useState(() => {
     try {
       const qp = new URLSearchParams(location.search).get('page')
-      if (['research', 'viewer', 'ai', 'monitor', 'strategies'].includes(qp)) return qp
+      if (['research', 'viewer', 'ai', 'monitor', 'strategies', 'training'].includes(qp)) return qp
       return localStorage.getItem('sse-etf-page') || 'viewer'
     } catch {
       return 'viewer'
@@ -580,6 +581,7 @@ function RootApp() {
             { label: '行情查看', value: 'viewer' },
             { label: '策略研究', value: 'research' },
             { label: '策略管理', value: 'strategies' },
+            { label: '模拟训练', value: 'training' },
             { label: 'AI 助手', value: 'ai' },
             { label: '监控', value: 'monitor' },
           ]}
@@ -590,6 +592,8 @@ function RootApp() {
           <ResearchPage />
         ) : page === 'strategies' ? (
           <StrategiesPage />
+        ) : page === 'training' ? (
+          <TrainingPage />
         ) : page === 'ai' ? (
           <AiPage />
         ) : page === 'monitor' ? (

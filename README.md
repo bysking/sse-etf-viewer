@@ -113,6 +113,23 @@ vite.config.js        挂载 @vitejs/plugin-react 与 server/api.js 中间件
 | `POST /api/research/events` | 跑 Wyckoff 事件识别 + 事件研究，返回事件、区间、逐日状态 |
 | `POST /api/research/param-suggest` | **参数推荐**：用事件研究样本给每个事件分组打分，返回建议阈值（`minSamples` / `minGain` / `trainEnd` 可调） |
 
+### 人工模拟训练
+
+| 路径 | 说明 |
+| --- | --- |
+| `GET /api/training/timeframes` | 支持的周期清单（1w / 1d / 60m / 30m / 15m / 5m）与各自可回溯范围 |
+| `GET /api/training/universe?q=` | 沪市证券搜索（个股 + ETF 合并，约 3200 个标的） |
+| `GET/POST /api/training/sessions` | 训练记录列表 / 新建训练（需要 `user` 用户名做隔离） |
+| `GET /api/training/sessions/:id` | 会话状态与账户快照；`?detail=1` 返回完整 K 线与成绩单（回看用） |
+| `GET /api/training/sessions/:id/bars` | 已推进区间的 K 线（**只到游标为止，不下发未来数据**） |
+| `POST /api/training/sessions/:id/advance` | 推进 N 根，响应只含新增 K 线 |
+| `GET/POST /api/training/sessions/:id/trades` | 成交记录 / 下单（`side=buy|sell`） |
+| `PATCH /api/training/sessions/:id` · `DELETE` | 结束（标记完成） / 删除记录 |
+
+> 训练数据只按 `user` 用户名隔离（无密码、无鉴权），用途是区分不同人的练习记录。
+>
+> **分钟周期历史只有约 1 年**：上游 `mink` 接口按根数封顶（5m=12000、15m=4000、30m=2000、60m=1000），不支持翻页取更早。日线自 2012 年起。深市代码（000/002/300/159）在该接口返回 404。
+
 ## 说明
 
 - **价格复权**：行情接口返回的日 K **不复权**，ETF 分红会在除息日留下向下跳空（实测 510880 十年买入持有收益：未复权 25.31% vs 前复权 76.13%）。系统提供除息事件管理：在「策略研究」页点「自动识别」，确认后即参与前复权；K 线、事件研究、回测、AI 上下文使用同一口径。自动识别是启发式结果，必须人工确认。

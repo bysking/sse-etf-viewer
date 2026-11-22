@@ -22,6 +22,9 @@ import { executeCheck } from './monitor/check.js'
 import { runOnce, getSchedulerStatus } from './monitor/scheduler.js'
 import * as notify from './notify/dispatch.js'
 import { createAuthMiddleware } from './auth.js'
+import { searchUniverse, listUniverse } from './data/universe.js'
+import { listTimeframes } from './data/intraday.js'
+import * as training from './training/service.js'
 
 class BadRequest extends Error {}
 class NotFound extends Error {}
@@ -656,6 +659,113 @@ export function apiMiddleware() {
         return send(200, { code, start, end, adjust: k.adjust, ...out })
       }
 
+      // ---------------- 人工模拟训练 ----------------
+
+      if (url.pathname === '/api/training/timeframes') {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        return send(200, { items: listTimeframes() })
+      }
+
+      // 证券搜索：个股 + ETF 合并（仅沪市）
+      if (url.pathname === '/api/training/universe') {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        // 注意：q 已被解析成 query 对象，这里取 q.q 作为关键词
+        const keyword = String(q.q || '').trim()
+        if (!keyword) {
+          const items = await listUniverse()
+          return send(200, { items: items.slice(0, 200), total: items.length })
+        }
+        return send(200, await searchUniverse(keyword))
+      }
+
+      if (url.pathname === '/api/training/sessions') {
+        if (method === 'GET') {
+          const user = need(String(q.user || '').trim(), 'user 必填')
+          return send(200, { items: training.listSessions(user) })
+        }
+        if (method === 'POST') {
+          const body = await readJson(req)
+          const user = need(String(body.user || '').trim(), '用户名必填')
+          const symbol = need(isCode(body.symbol) && String(body.symbol).trim(), '标的代码应为 6 位数字')
+          const r = await training.createSession({
+            userName: user,
+            symbol,
+            symbolName: body.symbolName ? String(body.symbolName).slice(0, 40) : null,
+            timeframe: String(body.timeframe || '1d'),
+            startDate: isoDate(body.startDate || addDays(todayCST(), -365), 'startDate'),
+            initialCash: body.initialCash,
+            positionPct: body.positionPct,
+          })
+          return send(201, r)
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const trainingMatch = url.pathname.match(/^\/api\/training\/sessions\/([^/]+)$/)
+      if (trainingMatch) {
+        const id = trainingMatch[1]
+        if (method === 'GET') {
+          const user = need(String(q.user || '').trim(), 'user 必填')
+          // detail=1 返回完整 bars（回看用）；默认只返回状态与快照
+          if (q.detail === '1') return send(200, await training.getSessionDetail(id, { userName: user }))
+          return send(200, await training.getSessionState(id, { userName: user }))
+        }
+        if (method === 'DELETE') {
+          const user = need(String(q.user || '').trim(), 'user 必填')
+          return send(200, await training.removeSession(id, { userName: user }))
+        }
+        if (method === 'PATCH' || method === 'PUT') {
+          const body = await readJson(req)
+          const user = need(String(body.user || '').trim(), '用户名必填')
+          return send(200, training.finishSession(id, { userName: user, title: body.title }))
+        }
+        throw bad('不支持的请求方法')
+      }
+
+      const trainingBarsMatch = url.pathname.match(/^\/api\/training\/sessions\/([^/]+)\/bars$/)
+      if (trainingBarsMatch) {
+        if (method !== 'GET') throw bad('不支持的请求方法')
+        const user = need(String(q.user || '').trim(), 'user 必填')
+        return send(
+          200,
+          await training.getVisibleBars(trainingBarsMatch[1], {
+            userName: user,
+            from: q.from == null ? 0 : Number(q.from),
+            to: q.to == null ? null : Number(q.to),
+          }),
+        )
+      }
+
+      const trainingAdvanceMatch = url.pathname.match(/^\/api\/training\/sessions\/([^/]+)\/advance$/)
+      if (trainingAdvanceMatch) {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const user = need(String(body.user || '').trim(), '用户名必填')
+        const steps = body.steps == null ? 1 : Number(body.steps)
+        if (!Number.isFinite(steps) || steps < 1) throw bad('steps 必须是 ≥1 的数字')
+        return send(200, await training.advance(trainingAdvanceMatch[1], { userName: user, steps }))
+      }
+
+      const trainingTradeMatch = url.pathname.match(/^\/api\/training\/sessions\/([^/]+)\/trades$/)
+      if (trainingTradeMatch) {
+        const id = trainingTradeMatch[1]
+        if (method === 'GET') {
+          const user = need(String(q.user || '').trim(), 'user 必填')
+          return send(200, await training.listTrades(id, { userName: user }))
+        }
+        if (method === 'POST') {
+          const body = await readJson(req)
+          const user = need(String(body.user || '').trim(), '用户名必填')
+          const r = await training.placeTrade(id, {
+            userName: user,
+            side: String(body.side || ''),
+            qty: body.qty == null ? null : Number(body.qty),
+          })
+          return send(200, r)
+        }
+        throw bad('不支持的请求方法')
+      }
+
       // ---------------- AI 助手 ----------------
       if (url.pathname === '/api/ai/config') {
         if (method === 'GET') return send(200, publicAiConfig())
@@ -817,7 +927,6 @@ export function apiMiddleware() {
       if (e?.status === 404) return send(404, { error: e.message })
       if (e?.status === 400) return send(400, { error: e.message })
       if (e instanceof BadRequest) return send(400, { error: e.message })
-      // AI 上游错误带 status 时按上游语义返回，便于前端区分鉴权/限流
       if (e instanceof AiError && e.status) return send(502, { error: e.message, code: e.code })
       send(502, { error: e.message })
     }
