@@ -2,9 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeWyckoff } from '../../shared/wyckoff/analyzer.js'
 import { runBacktest, sizePosition } from './engine.js'
+import { validateStrategyConfig } from '../../shared/strategy/validate.js'
 import { accumulationBars, WYCKOFF_TEST_CONFIG } from '../../test-support/fixtures.js'
 
 const strategy = {
+  symbol: '510300',
   entry: {
     all: [
       { event: 'Spring', withinBars: 5 },
@@ -98,6 +100,114 @@ test('仓位计算：浮点误差不应少买一档', () => {
   // 止损位不低于入场价时不开仓
   assert.equal(sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: 4.0, ex }), 0)
   assert.equal(sizePosition({ equity: 100000, entryRef: 4.0, stopLevel: null, ex }), 0)
+})
+
+test('分批建仓：首档按 immediate 成交，档位标记正确', () => {
+  const bars = accumulationBars()
+  const analysis = analyzeWyckoff(bars, WYCKOFF_TEST_CONFIG)
+  const scaled = {
+    ...strategy,
+    entry: { all: [{ event: 'Spring', withinBars: 5 }] },
+    exit: { any: [{ stopLoss: { reference: 'eventLow', event: 'Spring', bufferAtr: 0.5 } }] },
+    execution: {
+      ...strategy.execution,
+      position: {
+        type: 'scaled',
+        maxPositionPct: 1,
+        tiers: [{ pct: 0.5, trigger: 'immediate' }, { pct: 0.5, trigger: 'event', event: 'Test' }],
+      },
+    },
+  }
+  const res = runBacktest({ bars, analysis, strategy: scaled, initialCash: 100000 })
+  const buys = res.trades.filter((t) => t.side === 'buy')
+  assert.ok(buys.length >= 1, '至少应建立首档仓位')
+  assert.equal(buys[0].tierIndex, 0)
+  assert.match(buys[0].reason, /entry/)
+})
+
+test('分批建仓：第二档在触发事件出现后加仓', () => {
+  const bars = accumulationBars()
+  const analysis = analyzeWyckoff(bars, WYCKOFF_TEST_CONFIG)
+  const hasTest = analysis.events.some((e) => e.type === 'Test')
+  const scaled = {
+    ...strategy,
+    entry: { all: [{ event: 'Spring', withinBars: 5 }] },
+    exit: { any: [{ stopLoss: { reference: 'eventLow', event: 'Spring', bufferAtr: 1.5 } }] },
+    execution: {
+      ...strategy.execution,
+      position: {
+        type: 'scaled',
+        maxPositionPct: 1,
+        tiers: [
+          { pct: 0.4, trigger: 'immediate' },
+          { pct: 0.3, trigger: 'event', event: 'Test', withinBars: 10 },
+          { pct: 0.3, trigger: 'event', event: 'SOS', withinBars: 10 },
+        ],
+      },
+    },
+  }
+  const res = runBacktest({ bars, analysis, strategy: scaled, initialCash: 100000 })
+  const buys = res.trades.filter((t) => t.side === 'buy')
+  assert.ok(buys.length >= 1)
+  if (hasTest) {
+    const tiers = buys.map((b) => b.tierIndex)
+    assert.ok(tiers.every((v, i) => i === 0 || v >= tiers[i - 1]), `档位应递增，实际 ${tiers}`)
+  }
+})
+
+test('分批建仓：首档只投入设定比例的资金', () => {
+  const bars = accumulationBars()
+  const analysis = analyzeWyckoff(bars, WYCKOFF_TEST_CONFIG)
+  const half = {
+    ...strategy,
+    entry: { all: [{ event: 'Spring', withinBars: 5 }] },
+    execution: {
+      ...strategy.execution,
+      position: { type: 'scaled', maxPositionPct: 1, tiers: [{ pct: 0.5, trigger: 'immediate' }] },
+    },
+  }
+  const full = {
+    ...strategy,
+    entry: { all: [{ event: 'Spring', withinBars: 5 }] },
+    execution: { ...strategy.execution, position: { type: 'allIn', maxPositionPct: 1 } },
+  }
+  const rHalf = runBacktest({ bars, analysis, strategy: half, initialCash: 100000 })
+  const rFull = runBacktest({ bars, analysis, strategy: full, initialCash: 100000 })
+  const qHalf = rHalf.trades.find((t) => t.side === 'buy')?.qty ?? 0
+  const qFull = rFull.trades.find((t) => t.side === 'buy')?.qty ?? 0
+  assert.ok(qFull > 0)
+  // 半仓约为全仓的一半（受取整影响，允许 2% 误差）
+  assert.ok(Math.abs(qHalf / qFull - 0.5) < 0.02, `半仓 ${qHalf} vs 全仓 ${qFull}`)
+})
+
+test('分批建仓配置校验：比例之和不能超过 1', () => {
+  const bad = {
+    ...strategy,
+    execution: {
+      ...strategy.execution,
+      position: { type: 'scaled', tiers: [{ pct: 0.6 }, { pct: 0.6 }] },
+    },
+  }
+  const errors = validateStrategyConfig(bad)
+  assert.ok(errors.some((e) => /之和不能超过 1/.test(e)))
+
+  const ok = {
+    ...strategy,
+    execution: {
+      ...strategy.execution,
+      position: { type: 'scaled', tiers: [{ pct: 0.5 }, { pct: 0.5, trigger: 'event', event: 'Test' }] },
+    },
+  }
+  assert.deepEqual(validateStrategyConfig(ok), [])
+
+  const badTrigger = {
+    ...strategy,
+    execution: {
+      ...strategy.execution,
+      position: { type: 'scaled', tiers: [{ pct: 0.5, trigger: 'magic' }] },
+    },
+  }
+  assert.ok(validateStrategyConfig(badTrigger).some((e) => /trigger/.test(e)))
 })
 
 test('回测：非法成交模式直接报错', () => {

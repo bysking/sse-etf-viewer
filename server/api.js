@@ -10,6 +10,7 @@ import { analyzeWyckoff, seriesToBars } from '../shared/wyckoff/analyzer.js'
 import { eventStudy } from '../shared/wyckoff/eventStudy.js'
 import * as repo from './store/repositories.js'
 import { executeBacktest } from './backtest/service.js'
+import { sweepBacktest, rankRobust } from './backtest/sweep.js'
 import { startJob } from './jobs/queue.js'
 import { publicAiConfig, saveAiConfig, getEffectiveAiConfig, resolveAiConfigForTest } from './ai/config.js'
 import { analyzeMarket, generateStrategy, chatWithContext, testAiConnection } from './ai/service.js'
@@ -474,6 +475,53 @@ export function apiMiddleware() {
       if (url.pathname === '/api/notify-log') {
         if (method !== 'GET') throw bad('不支持的请求方法')
         return send(200, { items: notify.listNotifyLog(Math.max(1, Math.min(500, Number(q.limit) || 100))) })
+      }
+
+      if (url.pathname === '/api/backtests/sweep') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const config = checkStrategyConfig(body.config)
+        const end = isoDate(body.end || todayCST(), 'end')
+        const start = isoDate(body.start || addDays(end, -730), 'start')
+        const trainEnd = isoDate(body.trainEnd, 'trainEnd')
+        if (start > end) throw bad('开始日期不能晚于结束日期')
+        if (trainEnd < start || trainEnd > end) throw bad('trainEnd 必须落在回测区间内')
+        const grid = Array.isArray(body.grid) ? body.grid : []
+        if (!grid.length) throw bad('grid 不能为空')
+
+        const raw = await getKline(config.symbol, start, end)
+        const k = applyAdjust(raw, repo.listDividends(config.symbol, { onlyConfirmed: true }))
+        const bars = seriesToBars(k.series)
+        if (!bars.length) throw new NotFound('区间内没有日 K 数据')
+
+        let shares = null
+        if (JSON.stringify({ e: config.entry, x: config.exit }).includes('"shareFlow"')) {
+          const s = await getShares(config.symbol, start, end)
+          shares = s.series.filter(([, v]) => v != null)
+        }
+
+        const initialCash = body.initialCash == null ? config.initialCash ?? 100000 : Number(body.initialCash)
+        if (!Number.isFinite(initialCash) || initialCash <= 0) throw bad('initialCash 必须是正数')
+
+        let out
+        try {
+          out = sweepBacktest({
+            bars,
+            strategy: config,
+            grid,
+            trainEnd,
+            initialCash,
+            shares,
+          })
+        } catch (e) {
+          throw new BadRequest(e.message)
+        }
+        return send(200, {
+          ...out,
+          symbol: config.symbol,
+          adjust: k.adjust,
+          ranked: rankRobust(out.results),
+        })
       }
 
       if (url.pathname === '/api/backtests/quick') {

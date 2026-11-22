@@ -3,7 +3,7 @@
 import { zscore } from '../indicators.js'
 import { mergeConfig } from './config.js'
 import { computeFeatures } from './features.js'
-import { createPivotTracker, inferRangeSide, weeklyContext } from './structure.js'
+import { createPivotTracker, inferRangeSide, weeklyContext, weeklyEvents } from './structure.js'
 
 /** API 返回的数组格式 → 引擎使用的对象格式 */
 export function seriesToBars(series) {
@@ -98,6 +98,8 @@ export function analyzeWyckoff(bars, userConfig = {}, options = {}) {
   const cfg = mergeConfig(userConfig)
   const features = computeFeatures(bars, cfg)
   const weekly = cfg.context?.weekly?.enabled ? weeklyContext(bars, cfg) : new Array(bars.length).fill(null)
+  // 周线事件（可选）：只保留 weekEnd <= 当日 的事件，避免使用未收盘的本周数据
+  const wEvents = cfg.context?.weekly?.events ? weeklyEvents(bars, cfg, analyzeWyckoff) : []
   const shareFlow = computeShareFlow(bars, options.shares, cfg)
   const share = shareFlow.rows
 
@@ -713,6 +715,10 @@ export function analyzeWyckoff(bars, userConfig = {}, options = {}) {
       progressAtr: features.progressAtr[i],
       effortResult: features.effortResult[i],
       weekly: weekly[i] || null,
+      // 只暴露 detectedDate <= 当日的周线事件（as-of，无未来函数）
+      weeklyEvents: wEvents.length
+        ? wEvents.filter((e) => e.detectedDate && e.detectedDate <= bar.date).slice(-5)
+        : undefined,
       share: share[i],
       range: snap,
       phase,

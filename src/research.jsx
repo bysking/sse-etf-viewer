@@ -22,6 +22,7 @@ import { buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } fro
 import { PARAM_GROUPS, defaultParams, buildWyckoffConfig } from './wyckoffParams.js'
 import { EChart } from './components/EChart.jsx'
 import { DividendPanel } from './components/DividendPanel.jsx'
+import { SweepPanel } from './components/SweepPanel.jsx'
 
 const { RangePicker } = DatePicker
 const { Title, Text } = Typography
@@ -650,6 +651,13 @@ export function ResearchPage() {
             </div>
           </>
         )}
+
+        <SweepPanel
+          code={code}
+          range={range}
+          initialCash={initialCash}
+          buildStrategyConfig={() => buildStrategy({ code, preset, includeShares, wyckoff })}
+        />
 
         <section className="panel" style={{ marginTop: 12 }}>
           <Space style={{ marginBottom: 8 }} wrap>

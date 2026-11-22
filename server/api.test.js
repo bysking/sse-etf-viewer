@@ -166,6 +166,28 @@ test('回测结果包含复权口径与数据版本', async () => {
   }
 })
 
+test('参数扫描 API：校验 grid 与分段边界', async () => {
+  const bad1 = await call('POST', '/api/backtests/sweep', {
+    config: validConfig,
+    start: '2025-01-01',
+    end: '2026-01-01',
+    trainEnd: '2025-07-01',
+    grid: [],
+  })
+  assert.equal(bad1.status, 400)
+  assert.match(bad1.body.error, /grid/)
+
+  const bad2 = await call('POST', '/api/backtests/sweep', {
+    config: validConfig,
+    start: '2025-01-01',
+    end: '2026-01-01',
+    trainEnd: '2024-01-01',
+    grid: [{ path: 'execution.position.riskPct', values: [0.01] }],
+  })
+  assert.equal(bad2.status, 400)
+  assert.match(bad2.body.error, /trainEnd/)
+})
+
 test('人工确认 API：确认后人工账本挂单，忽略只改状态', async () => {
   const repo = await import('./store/repositories.js')
   const sid = (await call('POST', '/api/strategies', { name: '人工确认', config: validConfig })).body.id

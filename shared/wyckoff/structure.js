@@ -144,6 +144,47 @@ export function buildWeeklyBars(bars) {
 }
 
 /**
+ * 周线事件识别：把周 K 当作 bar 序列跑同一套事件检测。
+ * 周线周期长，默认放宽部分阈值（周线振幅天然更大）。
+ *
+ * 重要：返回的事件只带 weekEnd，调用方必须只使用 weekEnd <= 当日 的事件，
+ * 否则会引入「本周还没收盘就用本周数据」的未来函数。
+ */
+export function weeklyEvents(bars, userConfig = {}, analyzeWyckoff) {
+  const cfg = mergeConfig(userConfig).context?.weekly
+  if (!cfg?.events) return []
+  if (typeof analyzeWyckoff !== 'function') return []
+  const weekly = buildWeeklyBars(bars)
+  if (weekly.length < 30) return [] // 数据太短，周线事件不可靠
+
+  // 周 K 转成 analyzer 需要的 bar 形态
+  const weeklyBars = weekly.map((w) => ({
+    date: w.weekEnd,
+    open: w.open,
+    high: w.high,
+    low: w.low,
+    close: w.close,
+    volume: w.volume,
+  }))
+
+  const res = analyzeWyckoff(weeklyBars, {
+    ...(userConfig.weeklyParams || {}),
+    context: { weekly: { enabled: false } }, // 周线不再套周线
+    shareFlow: { enabled: false },
+  })
+  return (res.events || []).map((e) => ({
+    type: e.type,
+    side: e.side,
+    // 周线事件的“发生/确认”都用周末日期，调用方按 detectedDate 做 as-of 过滤
+    occurredDate: e.occurredDate,
+    detectedDate: e.detectedDate,
+    price: e.price,
+    timeframe: 'weekly',
+    evidence: e.evidence,
+  }))
+}
+
+/**
  * 周线背景 as-of：对任意日 bar，只使用 weekEnd <= 当日 的最近一根周线。
  * 周内尚未收盘的日子自然只能看到上一完整周。
  */

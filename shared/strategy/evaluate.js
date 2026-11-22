@@ -88,6 +88,21 @@ function matchShareFlow(node, state) {
   return true
 }
 
+/** 周线事件条件：只匹配已收盘周的事件（state.weeklyEvents 已是 as-of） */
+function matchWeeklyEvent(node, state) {
+  const spec = node.weeklyEvent
+  if (!spec || !Array.isArray(state.weeklyEvents) || !state.weeklyEvents.length) return false
+  const want = String(spec.type || spec.event || '').toLowerCase()
+  if (!want) return false
+  const withinWeeks = Number.isFinite(spec.withinWeeks) ? spec.withinWeeks : 4
+  const events = state.weeklyEvents
+  const latest = events[events.length - 1]
+  if (!latest || String(latest.type).toLowerCase() !== want) return false
+  // withinWeeks 按自然周估算：与最近一次匹配事件的日期差
+  const gapDays = (Date.parse(state.date) - Date.parse(latest.detectedDate)) / 864e5
+  return gapDays <= withinWeeks * 7
+}
+
 function matchFilter(node, state) {
   const spec = node.filter
   if (!spec) return false
@@ -117,6 +132,7 @@ export function match(node, ctx) {
   if (node.event) return matchEvent(node, ctx)
   if ('phase' in node) return matchPhase(node, ctx.state)
   if ('weekly' in node) return matchWeekly(node, ctx.state)
+  if ('weeklyEvent' in node) return matchWeeklyEvent(node, ctx.state)
   if ('shareFlow' in node) return matchShareFlow(node, ctx.state)
   if ('filter' in node) return matchFilter(node, ctx.state)
   return false

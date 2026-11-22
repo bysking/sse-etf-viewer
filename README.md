@@ -1,5 +1,9 @@
 # ETF 份额 × 指数（Vite + React + antd 前后端一体化）
 
+> **第一次使用请先看 [docs/user-guide.md](docs/user-guide.md)** — 完整的功能介绍与分步使用说明。
+>
+> 其他文档：[部署与安全](docs/deployment.md) ｜ [技术方案](docs/wyckoff-strategy-design.md) ｜ [参数校准记录](docs/wyckoff-calibration-2026-11-19.md) ｜ [AI 策略契约](docs/ai-strategy-authoring.md)
+
 输入 ETF 代码或关键词，查看上交所 ETF **总份额**走势，并与**指数**（默认上证指数）叠加对比。数据全部来自上海证券交易所。
 
 - **收藏**：查询后可点 ☆（或按 `F`）收藏，收藏项显示在输入框下方，点击即快速查看；点标签上的 × 移除。收藏存 `localStorage`，不随账号同步。

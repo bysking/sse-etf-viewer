@@ -28,21 +28,68 @@ function floorToLot(shares, lot) {
   return Math.floor(shares / lot + 1e-9) * lot
 }
 
-/** 按风险比例或全仓计算买入数量（已按最小交易单位取整） */
-export function sizePosition({ equity, entryRef, stopLevel, ex }) {
+/**
+ * 按风险比例或全仓计算买入数量（已按最小交易单位取整）。
+ * @param {object} [p.pct] 分批建仓时该档占总仓位的比例，默认 1（一次性建满）
+ */
+export function sizePosition({ equity, entryRef, stopLevel, ex, pct = 1 }) {
   const pos = ex.position || {}
   const lot = Math.max(1, Math.floor(ex.lotSize || 100))
-  if (pos.type === 'allIn') {
-    const byMax = (equity * (pos.maxPositionPct ?? 1)) / entryRef
+  const share = Math.min(1, Math.max(0, Number(pct) || 0))
+  if (!(share > 0)) return 0
+  if (pos.type === 'allIn' || pos.type === 'scaled') {
+    const byMax = (equity * (pos.maxPositionPct ?? 1) * share) / entryRef
     return floorToLot(byMax, lot)
   }
   const riskPct = pos.riskPct ?? 0.01
   if (stopLevel == null) return 0
   const dist = entryRef - stopLevel
   if (!(dist > 0)) return 0
-  const byRisk = (equity * riskPct) / dist
-  const byMax = (equity * (pos.maxPositionPct ?? 1)) / entryRef
+  const byRisk = (equity * riskPct * share) / dist
+  const byMax = (equity * (pos.maxPositionPct ?? 1) * share) / entryRef
   return floorToLot(Math.min(byRisk, byMax), lot)
+}
+
+/**
+ * 分批建仓：判断当前是否满足下一档的触发条件。
+ * 档位按顺序推进，每档触发一次。
+ * @param {object} p
+ * @param {Array} p.tiers 已校验的档位
+ * @param {number} p.nextTier 下一档下标
+ * @param {object} p.ctx 当前 bar 的策略上下文
+ * @param {object} p.position { avgCost }
+ * @param {object} p.compiled compileStrategy 结果
+ * @param {number} p.index 当前 bar 下标
+ */
+export function isTierTriggered({ tiers, nextTier, ctx, position, compiled, index }) {
+  const tier = tiers?.[nextTier]
+  if (!tier) return false
+  const trigger = tier.trigger || 'immediate'
+  if (trigger === 'immediate') return true
+  if (trigger === 'event') {
+    // 用与策略条件相同的“最近事件”判定，保证回测/监控一致
+    const ev = findRecentEvent(ctx.events, index, tier.event, tier.withinBars ?? 5)
+    return Boolean(ev)
+  }
+  if (trigger === 'pullbackPct') {
+    const ref = Number(ctx.state?.close)
+    const base = Number(position?.avgCost)
+    if (!(ref > 0) || !(base > 0)) return false
+    return ref <= base * (1 - Number(tier.value || 0))
+  }
+  return false
+}
+
+function findRecentEvent(events, i, type, withinBars) {
+  const want = String(type || '').toLowerCase()
+  let found = null
+  for (const e of events || []) {
+    if (e.detectedIndex > i) break
+    if (String(e.type).toLowerCase() !== want) continue
+    if (i - e.detectedIndex > withinBars) continue
+    found = e
+  }
+  return found
 }
 
 export { floorToLot }
@@ -104,6 +151,8 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
   let pendingBuy = null
   let pendingSell = null
   let entryCooldownUntil = -1
+  // 分批建仓：下一档待触发的下标；0 表示还没开首仓
+  let nextTier = 0
 
   const trades = []
   const cancelled = []
@@ -152,7 +201,10 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
             fee,
             pnl: null,
             reason: pendingBuy.reason,
+            tierIndex: pendingBuy.tierIndex ?? 0,
           })
+          // 成交后推进到下一档
+          nextTier = (pendingBuy.tierIndex ?? 0) + 1
           pendingBuy = null
         }
       }
@@ -172,6 +224,7 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
         if (units === 0) {
           avgCost = 0
           positionStop = null
+          nextTier = 0 // 清仓后重新从首档开始
         }
         trades.push({
           side: 'sell',
@@ -206,19 +259,36 @@ export function runBacktest({ bars, analysis, strategy = {}, initialCash = 10000
 
     const ctx = { state: states[i], i, events, analysis }
 
-    // 入场
-    if (units === 0 && !pendingBuy && !pendingSell && i >= entryCooldownUntil && compiled.entry(ctx)) {
-      const entryRef = bar.close
-      const stopLevel = compiled.stopLevel(ctx)
-      const qty = sizePosition({ equity, entryRef, stopLevel, ex })
-      if (qty > 0) {
-        pendingBuy = {
-          side: 'buy',
-          qty,
-          stopLevel,
-          signalIndex: i,
-          signalDate: bar.date,
-          reason: 'entry',
+    // 入场 / 加仓
+    const scaled = ex.position?.type === 'scaled' && Array.isArray(ex.position.tiers) && ex.position.tiers.length > 0
+    const canOpen = scaled ? units === 0 : units === 0
+    const canScale = scaled && units > 0 && nextTier < ex.position.tiers.length
+
+    if ((canOpen || canScale) && !pendingBuy && !pendingSell && i >= entryCooldownUntil) {
+      // 首档或单次入场需要策略入场条件；后续档位只看该档自己的触发条件
+      const entryOk = canOpen ? compiled.entry(ctx) : true
+      const tierOk =
+        !scaled || canOpen ? true : isTierTriggered({ tiers: ex.position.tiers, nextTier, ctx, position: { avgCost }, compiled, index: i })
+
+      if (entryOk && tierOk) {
+        const entryRef = bar.close
+        const stopLevel = compiled.stopLevel(ctx)
+        const tierPct = scaled ? ex.position.tiers[canOpen ? 0 : nextTier].pct : 1
+        // 加仓时按剩余可用比例计算，避免超出 maxPositionPct
+        const qty = sizePosition({ equity, entryRef, stopLevel, ex, pct: tierPct })
+        if (qty > 0) {
+          pendingBuy = {
+            side: 'buy',
+            qty,
+            stopLevel: canOpen ? stopLevel : positionStop ?? stopLevel,
+            signalIndex: i,
+            signalDate: bar.date,
+            reason: canOpen ? 'entry' : `scale-${(canOpen ? 0 : nextTier) + 1}`,
+            tierIndex: scaled ? (canOpen ? 0 : nextTier) : 0,
+          }
+        } else if (canScale) {
+          // 该档算不出数量（例如资金不足），跳过它继续等下一档
+          nextTier += 1
         }
       }
     }

@@ -908,7 +908,7 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 | **P1（3–5 天）** | 流式 Wyckoff 分析器；核心事件；周线背景；份额流；事件研究；回测核心 | 合成 fixture 能识别 Spring/UTAD；截断测试通过；510300 事件统计可输出 |
 | **P2（3–5 天）** | 标注行情图；事件研究面板；策略编辑器；回测结果页 | 能新建「Spring 吸筹」策略、跑回测、看到区间/事件/买卖点/收益指标 |
 | **P3（2–3 天）** ✅ | 规则模拟盘 + 人工确认盘；EOD 调度；信号去重；飞书 / Telegram；发送日志 | 同一信号重启后不重复推送；待成交按次日开盘结算；两个渠道收到测试消息 |
-| **P4（按需）** | 参数扫描；完整 Phase A–E；周线事件；P&F 目标位；图表截图推送；公网鉴权 | 按需验收 |
+| **P4（按需）** | ✅ 参数扫描、分批建仓、周线事件；⬜ 完整 Phase A–E、P&F 目标位、图表截图推送 | 按需验收 |
 
 预计总计 **2–3 周**（个人开发节奏）；主要不确定性在事件阈值校准，不在架构。
 
@@ -1009,6 +1009,15 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 - 新增 `GET /api/strategy-authoring/schema` 与 `docs/ai-strategy-authoring.md`，供未来 AI/外部工具读取契约。
 - 下一步：把 AI 生成的策略保存为不可变版本（draft → validated → active），再接入沙箱 JS 策略。
 
+## 20. P4 增强（已实现）
+
+- **参数扫描**（`server/backtest/sweep.js`）：网格展开（上限 200 组）、训练/验证分段、按「两段较小收益」排序（`rankRobust`）；不自动择优，过拟合判断留给人。
+- **分批建仓**（`execution.position.type = "scaled"`）：1–5 档，每档带 `pct` 与触发方式（`immediate` / `event` / `pullbackPct`），档位顺序推进、清仓后重置；比例之和不得超过 1。
+- **周线事件识别**（`weeklyEvents`）：在周 K 上复用同一套事件检测，按 `detectedDate <= 当日` 做 as-of 挂载，避免使用未收盘本周数据；策略侧通过 `weeklyEvent` 条件使用。默认关闭。
+- **前端**：策略研究页新增参数扫描面板。
+
+尚未实现（留待需要时）：P&F 目标位、图表截图推送、完整 Phase A–E 状态迁移。
+
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
@@ -1018,3 +1027,4 @@ CREATE INDEX IF NOT EXISTS idx_notify_log_created
 | v1.2 | 2026-11-19 | 验证并实现前复权（除息事件表 + 自动识别 + 人工确认）；回测绑定策略版本并记录 `dataVersion`；新增轻量 DB 迁移，旧库自动补列。 |
 | v1.3 | 2026-11-19 | 实现 P3：双账本模拟盘、信号生成与去重、收盘后调度、飞书/Telegram 通知、监控页；修复仓位计算的浮点截断缺陷。 |
 | v1.4 | 2026-11-19 | 安全加固（AES-GCM 加密 + 可选 token 鉴权 + 部署文档）；AI 用量统计；前端按页懒加载与第三方库分包。 |
+| v1.5 | 2026-11-19 | P4 增强：参数扫描（训练/验证分段）、分批建仓、周线事件识别；新增面向使用者的 `docs/user-guide.md`。 |

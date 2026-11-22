@@ -83,6 +83,20 @@ function validateWeekly(node, path, errors) {
   }
 }
 
+function validateWeeklyEvent(node, path, errors) {
+  const spec = node.weeklyEvent
+  if (!isObj(spec)) {
+    errors.push(`${path}.weeklyEvent 必须是对象`)
+    return
+  }
+  if (!isEvent(spec.type ?? spec.event)) {
+    errors.push(`${path}.weeklyEvent.type 需要是支持的事件类型`)
+  }
+  if (spec.withinWeeks != null && !inRange(spec.withinWeeks, 1, 52)) {
+    errors.push(`${path}.weeklyEvent.withinWeeks 应在 1–52`)
+  }
+}
+
 function validateShareFlow(node, path, errors) {
   const spec = node.shareFlow
   if (!isObj(spec)) {
@@ -156,9 +170,13 @@ function validateNode(node, path, errors) {
     return
   }
 
-  const recognized = ['event', 'phase', 'weekly', 'shareFlow', 'filter', 'stopLoss'].filter((k) => node[k] != null)
+  const recognized = ['event', 'phase', 'weekly', 'weeklyEvent', 'shareFlow', 'filter', 'stopLoss'].filter(
+    (k) => node[k] != null,
+  )
   if (recognized.length === 0) {
-    errors.push(`${path} 不支持的条件；可用：event / phase / weekly / shareFlow / filter / stopLoss / all / any / not`)
+    errors.push(
+      `${path} 不支持的条件；可用：event / phase / weekly / weeklyEvent / shareFlow / filter / stopLoss / all / any / not`,
+    )
     return
   }
   if (recognized.length > 1) {
@@ -169,6 +187,7 @@ function validateNode(node, path, errors) {
   if (key === 'event') validateEvent(node, path, errors)
   else if (key === 'phase') validatePhase(node, path, errors)
   else if (key === 'weekly') validateWeekly(node, path, errors)
+  else if (key === 'weeklyEvent') validateWeeklyEvent(node, path, errors)
   else if (key === 'shareFlow') validateShareFlow(node, path, errors)
   else if (key === 'filter') validateFilter(node, path, errors)
   else if (key === 'stopLoss') validateStopLoss(node, path, errors)
@@ -176,7 +195,7 @@ function validateNode(node, path, errors) {
 
 function hasTrigger(node) {
   if (!node || typeof node !== 'object') return false
-  if (node.event || node.phase || node.weekly || node.shareFlow || node.filter) return true
+  if (node.event || node.phase || node.weekly || node.weeklyEvent || node.shareFlow || node.filter) return true
   if (node.not) return hasTrigger(node.not)
   for (const key of ['all', 'any']) {
     const list = node[key]
@@ -221,7 +240,35 @@ function validateExecution(exec, errors) {
       errors.push('execution.position 必须是对象')
       return
     }
-    if (!['riskBased', 'allIn'].includes(exec.position.type)) errors.push('execution.position.type 仅支持 riskBased / allIn')
+    if (!['riskBased', 'allIn', 'scaled'].includes(exec.position.type)) {
+      errors.push('execution.position.type 仅支持 riskBased / allIn / scaled')
+    }
+    if (exec.position.type === 'scaled') {
+      const tiers = exec.position.tiers
+      if (!Array.isArray(tiers) || !tiers.length || tiers.length > 5) {
+        errors.push('execution.position.tiers 必须是 1–5 个分批')
+      } else {
+        let sum = 0
+        tiers.forEach((t, i) => {
+          if (!isObj(t)) {
+            errors.push(`execution.position.tiers[${i}] 必须是对象`)
+            return
+          }
+          if (!inRange(t.pct, 0, 1) || t.pct <= 0) errors.push(`execution.position.tiers[${i}].pct 应在 (0,1]`)
+          else sum += t.pct
+          if (t.trigger != null && !['immediate', 'event', 'pullbackPct'].includes(t.trigger)) {
+            errors.push(`execution.position.tiers[${i}].trigger 仅支持 immediate / event / pullbackPct`)
+          }
+          if (t.trigger === 'event' && !isEvent(t.event)) {
+            errors.push(`execution.position.tiers[${i}].event 需要是支持的事件类型`)
+          }
+          if (t.trigger === 'pullbackPct' && !inRange(t.value, 0, 1)) {
+            errors.push(`execution.position.tiers[${i}].value 应在 0–1`)
+          }
+        })
+        if (sum > 1.0001) errors.push(`execution.position.tiers 的 pct 之和不能超过 1（当前 ${sum.toFixed(2)}）`)
+      }
+    }
     if (exec.position.riskPct != null && !inRange(exec.position.riskPct, 0, 1)) errors.push('execution.position.riskPct 应在 0–1')
     if (exec.position.maxPositionPct != null && !inRange(exec.position.maxPositionPct, 0, 1)) {
       errors.push('execution.position.maxPositionPct 应在 0–1')

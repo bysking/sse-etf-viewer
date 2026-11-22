@@ -10,6 +10,8 @@ export const DEFAULT_CONFIG = {
       enabled: true,
       maPeriod: 30,
       rangeWeeks: 20,
+      // 周线事件识别：默认关闭，开启后会在周 K 上跑同一套事件检测
+      events: false,
     },
   },
   shareFlow: {
