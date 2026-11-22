@@ -29,7 +29,6 @@ import {
   ReloadOutlined,
   RiseOutlined,
   BugOutlined,
-  FallOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -43,6 +42,7 @@ import {
   saveBinding,
 } from './hooks/useContextMenuAdvance.js'
 import { KeyDiagnostics } from './components/KeyDiagnostics.jsx'
+import { RatioButtons, ratioLabel } from './components/RatioButtons.jsx'
 
 const { Title, Text } = Typography
 
@@ -394,17 +394,27 @@ export function TrainingPage() {
 
   /* ---------------- 下单 ---------------- */
 
-  const trade = async (side) => {
+  /**
+   * 下单。ratio 语义：
+   *   买入 = 本次使用的现金比例（null 则用会话默认仓位）
+   *   卖出 = 本次卖出的持仓比例（null 则清空全部持仓）
+   */
+  const trade = async (side, ratio = null) => {
     if (!session?.id) return
     try {
-      const r = await postApi(`/api/training/sessions/${session.id}/trades`, { user, side })
+      const r = await postApi(`/api/training/sessions/${session.id}/trades`, {
+        user,
+        side,
+        ratio: ratio == null ? null : Number(ratio),
+      })
       setTrades((prev) => prev.concat([r.trade]))
       setSnapshot(r.snapshot)
       setSession((s) => (s ? { ...s, ...r.session, cursor: r.cursor } : s))
       setTotalBars(r.totalBars)
       setFinished(Boolean(r.finished))
-      if (side === 'buy') msgApi.success(`买入 ${r.trade.qty} 份 @ ${n2(r.trade.price)}`)
-      else msgApi.success(`卖出 ${r.trade.qty} 份 @ ${n2(r.trade.price)}${r.pnl != null ? `，盈亏 ${n2(r.pnl)}` : ''}`)
+      const label = ratio == null ? '' : `（${ratioLabel(ratio)}）`
+      if (side === 'buy') msgApi.success(`买入 ${r.trade.qty} 份 @ ${n2(r.trade.price)}${label}`)
+      else msgApi.success(`卖出 ${r.trade.qty} 份 @ ${n2(r.trade.price)}${label}${r.pnl != null ? `，盈亏 ${n2(r.pnl)}` : ''}`)
     } catch (e) {
       msgApi.error(e.message)
     }
@@ -499,6 +509,17 @@ export function TrainingPage() {
       dataIndex: 'side',
       width: 70,
       render: (s) => (s === 'buy' ? <Tag color="red">买入</Tag> : <Tag color="green">卖出</Tag>),
+    },
+    {
+      title: '比例',
+      dataIndex: 'ratio',
+      width: 76,
+      render: (v, r) =>
+        v == null ? (
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>-</span>
+        ) : (
+          <Tag color={r.side === 'buy' ? 'red' : 'green'}>{ratioLabel(v)}</Tag>
+        ),
     },
     { title: '时间', dataIndex: 'barTs', width: 150 },
     { title: '价格', dataIndex: 'price', width: 90, render: (v) => n2(v) },
@@ -654,7 +675,8 @@ export function TrainingPage() {
             </Button>
           </Space>
           <div className="status" style={{ marginBottom: 0, marginTop: 8 }}>
-            买入按「当前现金 × 仓位」计算，向下取整到 100 份；成交价用当前 K 线收盘价，不计费用。
+            「每次买入仓位」是会话默认仓位；训练时还可以在买卖按钮上临时选 1/10、1/5、1/4、1/3、1/2 或自定义比例。
+            买入基数是当前可用现金，卖出基数是当前持仓，数量都向下取整到 100 份；成交价用当前 K 线收盘价，不计费用。
           </div>
         </section>
 
@@ -710,24 +732,17 @@ export function TrainingPage() {
                 <Button size="small" onClick={() => doAdvance(10)} disabled={!activeSession || advancing}>
                   快进 10 根
                 </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<RiseOutlined />}
-                  onClick={() => trade('buy')}
+                <RatioButtons
+                  side="buy"
+                  positionPct={session.positionPct}
                   disabled={!session || (snapshot?.cash || 0) <= 0}
-                >
-                  买入 {pct(session.positionPct)}
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  icon={<FallOutlined />}
-                  onClick={() => trade('sell')}
+                  onExec={(ratio) => trade('buy', ratio)}
+                />
+                <RatioButtons
+                  side="sell"
                   disabled={!session || !snapshot?.units}
-                >
-                  全部卖出
-                </Button>
+                  onExec={(ratio) => trade('sell', ratio)}
+                />
                 <span className="sp" />
                 <Button size="small" icon={<PauseCircleOutlined />} onClick={endSession} disabled={session.status === 'finished'}>
                   结束并保存

@@ -760,6 +760,7 @@ export function apiMiddleware() {
             userName: user,
             side: String(body.side || ''),
             qty: body.qty == null ? null : Number(body.qty),
+            ratio: body.ratio == null ? null : Number(body.ratio),
           })
           return send(200, r)
         }

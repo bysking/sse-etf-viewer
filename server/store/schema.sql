@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS training_trades (
   units_after INTEGER NOT NULL,
   avg_cost_after REAL NOT NULL,
   pnl REAL,                         -- 仅卖出时有值（已实现盈亏）
+  ratio REAL,                       -- 本次成交比例：买入=现金占比，卖出=持仓占比（1 表示全部）
   note TEXT,
   created_at TEXT NOT NULL
 );

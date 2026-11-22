@@ -158,3 +158,38 @@ test('deleteTrainingSession：连带删除成交，且校验归属', () => {
   assert.equal(repo.getTrainingSession(s.id), null)
   assert.equal(repo.listTrainingTrades(s.id).length, 0)
 })
+
+test('insertTrainingTrade：记录本次比例 ratio', () => {
+  const s = repo.createTrainingSession({ userName: 'ratio_user', ...base })
+  const buy = repo.insertTrainingTrade({
+    sessionId: s.id,
+    barIndex: 5,
+    barTs: '2024-01-08',
+    side: 'buy',
+    qty: 2000,
+    price: 10,
+    cash: 80000,
+    units: 2000,
+    avgCost: 10,
+    ratio: 0.2,
+  })
+  assert.equal(buy.ratio, 0.2, '买入比例应落库')
+
+  const sell = repo.insertTrainingTrade({
+    sessionId: s.id,
+    barIndex: 9,
+    barTs: '2024-01-15',
+    side: 'sell',
+    qty: 500,
+    price: 11,
+    cash: 85500,
+    units: 1500,
+    avgCost: 10,
+    pnl: 500,
+    ratio: 0.25,
+  })
+  assert.equal(sell.ratio, 0.25, '卖出比例应落库')
+
+  const list = repo.listTrainingTrades(s.id)
+  assert.deepEqual(list.map((t) => t.ratio), [0.2, 0.25])
+})

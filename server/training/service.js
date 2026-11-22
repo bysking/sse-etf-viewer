@@ -137,11 +137,21 @@ export async function advance(sessionId, { userName, steps = 1 }) {
   }
 }
 
-/** 下单：按当前（最后一根已推进 bar）的收盘价成交 */
-export async function placeTrade(sessionId, { userName, side, qty = null }) {
+/**
+ * 下单：按当前（最后一根已推进 bar）的收盘价成交。
+ *
+ * 比例语义：
+ *   - 买入 ratio = 本次使用的「现金比例」（不传则用会话默认仓位）
+ *   - 卖出 ratio = 本次卖出的「持仓比例」（不传且未给 qty 则清空全部持仓）
+ */
+export async function placeTrade(sessionId, { userName, side, qty = null, ratio = null }) {
   if (!['buy', 'sell'].includes(side)) throw fail('side 仅支持 buy / sell')
+  if (ratio != null) {
+    const r = Number(ratio)
+    if (!Number.isFinite(r) || r <= 0 || r > 1) throw fail('比例应在 0–1 之间')
+  }
   const { session, bars } = await loadContext(sessionId, { userName })
-  if (session.cursor <= 0) throw fail('先按右键推进 K 线，才有可成交的价格')
+  if (session.cursor <= 0) throw fail('先按方向键 → 推进 K 线，才有可成交的价格')
   const last = bars[session.cursor - 1]
   const price = Number(last.close)
 
@@ -152,10 +162,25 @@ export async function placeTrade(sessionId, { userName, side, qty = null }) {
           units: session.units,
           avgCost: session.avgCost,
           price,
-          positionPct: session.positionPct,
+          // 本次指定的比例优先，否则用会话默认仓位
+          positionPct: ratio == null ? session.positionPct : Number(ratio),
         })
-      : applySell({ cash: session.cash, units: session.units, avgCost: session.avgCost, price, qty })
+      : applySell({
+          cash: session.cash,
+          units: session.units,
+          avgCost: session.avgCost,
+          price,
+          qty,
+          positionPct: ratio == null ? null : Number(ratio),
+        })
   if (result.error) throw fail(result.error)
+
+  // 记录本次比例：买入是现金占比，卖出是持仓占比；卖出全部记为 1
+  const usedRatio = (() => {
+    if (side === 'buy') return ratio == null ? session.positionPct : Number(ratio)
+    if (qty != null) return null // 指定份额时比例无意义
+    return ratio == null ? 1 : Number(ratio)
+  })()
 
   const trade = repo.insertTrainingTrade({
     sessionId: session.id,
@@ -168,6 +193,7 @@ export async function placeTrade(sessionId, { userName, side, qty = null }) {
     units: result.units,
     avgCost: result.avgCost,
     pnl: result.pnl ?? null,
+    ratio: usedRatio,
   })
   const updated = repo.getTrainingSession(session.id)
   return {

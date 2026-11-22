@@ -637,6 +637,7 @@ const mapTrainingTrade = (row) =>
         note: row.note,
         createdAt: row.created_at,
         pnl: row.pnl ?? null,
+        ratio: row.ratio ?? null,
       }
     : null
 
@@ -726,6 +727,7 @@ export function insertTrainingTrade({
   units,
   avgCost,
   pnl = null,
+  ratio = null,
   note = null,
 }) {
   const db = getDb()
@@ -739,9 +741,9 @@ export function insertTrainingTrade({
   const ts = now()
   db.prepare(
     `INSERT INTO training_trades
-     (id, session_id, seq, bar_index, bar_ts, side, qty, price, cash_after, units_after, avg_cost_after, pnl, note, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, sessionId, seq, barIndex, barTs, side, qty, price, cash, units, avgCost, pnl, note, ts)
+     (id, session_id, seq, bar_index, bar_ts, side, qty, price, cash_after, units_after, avg_cost_after, pnl, ratio, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, sessionId, seq, barIndex, barTs, side, qty, price, cash, units, avgCost, pnl, ratio, note, ts)
   db.prepare(
     'UPDATE training_sessions SET cash = ?, units = ?, avg_cost = ?, updated_at = ? WHERE id = ?',
   ).run(cash, units, avgCost, ts, sessionId)

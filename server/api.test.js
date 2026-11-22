@@ -444,3 +444,20 @@ test('训练 API：推进参数校验', async () => {
   assert.equal(r.status, 400)
   assert.match(r.body.error, /steps/)
 })
+
+test('训练 API：下单比例校验', async () => {
+  const bad = await call('POST', '/api/training/sessions/whatever/trades', {
+    user: 'u1',
+    side: 'buy',
+    ratio: 2,
+  })
+  assert.equal(bad.status, 400)
+  assert.match(bad.body.error, /比例/)
+
+  const badSide = await call('POST', '/api/training/sessions/whatever/trades', {
+    user: 'u1',
+    side: 'nope',
+  })
+  assert.equal(badSide.status, 400)
+  assert.match(badSide.body.error, /side/)
+})

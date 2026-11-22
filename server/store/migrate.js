@@ -14,6 +14,7 @@ const COLUMNS = [
   ['paper_orders', 'stop_level', 'REAL'],
   ['strategy_state', 'state_json', 'TEXT'],
   ['training_trades', 'pnl', 'REAL'],
+  ['training_trades', 'ratio', 'REAL'],
 ]
 
 function existingColumns(db, table) {
