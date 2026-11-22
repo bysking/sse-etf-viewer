@@ -13,16 +13,25 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
-import { ExperimentOutlined, PlayCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import {
+  ExperimentOutlined,
+  InfoCircleOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons'
 import { api, postApi } from './api.js'
-import { buildResearchOption, buildEquityOption, EVENT_TYPES, EVENT_COLORS } from './researchChart.js'
-import { PARAM_GROUPS, defaultParams, buildWyckoffConfig } from './wyckoffParams.js'
+import { buildResearchOption, buildEquityOption, EVENT_TYPES } from './researchChart.js'
+import { PARAM_GROUPS, defaultParams, buildWyckoffConfig, isParamChanged, flattenConfig } from './wyckoffParams.js'
 import { EChart } from './components/EChart.jsx'
 import { DividendPanel } from './components/DividendPanel.jsx'
 import { SweepPanel } from './components/SweepPanel.jsx'
+import { ParamSuggestPanel } from './components/ParamSuggestPanel.jsx'
+import { EventInfo } from './components/EventInfo.jsx'
 
 const { RangePicker } = DatePicker
 const { Title, Text } = Typography
@@ -410,8 +419,8 @@ export function ResearchPage() {
     {
       title: '事件',
       dataIndex: 'type',
-      width: 84,
-      render: (t) => <Tag color={EVENT_COLORS[t] || 'default'}>{t}</Tag>,
+      width: 104,
+      render: (t) => <EventInfo type={t} />,
     },
     { title: '方向', dataIndex: 'side', width: 82, render: (s) => (s === 'distribution' ? '派发' : s === 'accumulation' ? '吸筹' : '-') },
     { title: '发生日', dataIndex: 'occurredDate', width: 108 },
@@ -422,7 +431,7 @@ export function ResearchPage() {
   ]
 
   const studyColumns = [
-    { title: '事件', dataIndex: 'type', width: 84, render: (t) => <Tag color={EVENT_COLORS[t] || 'default'}>{t}</Tag> },
+    { title: '事件', dataIndex: 'type', width: 104, render: (t) => <EventInfo type={t} /> },
     { title: '窗口', dataIndex: 'horizon', width: 64 },
     { title: '样本', dataIndex: 'count', width: 64 },
     { title: '平均收益', dataIndex: 'avgReturn', width: 100, render: pctCell },
@@ -529,7 +538,9 @@ export function ResearchPage() {
           <div className="param-head">
             <Space size={8} wrap>
               <Text strong>Wyckoff 参数</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>修改后点「识别事件」重新计算</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                修改后点「识别事件」重新计算；每项标题可悬停看说明
+              </Text>
             </Space>
             <Button size="small" icon={<ReloadOutlined />} onClick={() => setParams(defaultParams())}>
               恢复默认
@@ -543,14 +554,21 @@ export function ResearchPage() {
               label: (
                 <Space size={8}>
                   <Text strong>{g.title}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{g.items.length} 项</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {g.items.filter((it) => isParamChanged(params, it.path)).length} / {g.items.length} 项已改
+                  </Text>
                 </Space>
               ),
               children: (
                 <div className="params-grid">
                   {g.items.map((it) => (
                     <div className="param" key={it.path}>
-                      <span>{it.label}</span>
+                      <Tooltip title={it.hint} placement="topLeft">
+                        <span className={isParamChanged(params, it.path) ? 'param-label changed' : 'param-label'}>
+                          {it.label}
+                          <InfoCircleOutlined className="param-hint-icon" />
+                        </span>
+                      </Tooltip>
                       <InputNumber
                         size="small"
                         value={params[it.path]}
@@ -569,9 +587,21 @@ export function ResearchPage() {
             }))}
           />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            回测使用同一份参数。阈值建议结合事件研究统计反复校准。
+            回测使用同一份参数。不知道设什么合适时，用下面的「参数推荐」。
           </Text>
         </section>
+
+        <ParamSuggestPanel
+          code={code}
+          range={range}
+          wyckoff={wyckoff}
+          disabled={loading}
+          onApply={(recommended) => {
+            const next = { ...params }
+            for (const [path, value] of Object.entries(flattenConfig(recommended))) next[path] = value
+            setParams(next)
+          }}
+        />
 
         {research?.bars?.length > 0 && (
           <>
@@ -603,9 +633,9 @@ export function ResearchPage() {
 
             <div className="eventtags">
               {EVENT_TYPES.map((t) => (
-                <Tag key={t} color={EVENT_COLORS[t]}>
+                <EventInfo key={t} type={t}>
                   {t} {counts[t] || 0}
-                </Tag>
+                </EventInfo>
               ))}
             </div>
 

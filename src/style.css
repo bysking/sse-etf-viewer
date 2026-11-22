@@ -60,6 +60,19 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
 .params-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 14px}
 .param{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);min-width:0}
 .param span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.param-label{cursor:help;display:inline-flex;align-items:center;gap:3px;min-width:0}
+.param-label.changed{color:var(--accent)}
+.param-hint-icon{font-size:11px;opacity:.55}
+.param-label.changed .param-hint-icon{opacity:.9}
+.suggest-field{display:inline-flex;align-items:center;gap:6px}
+
+/* 事件释义 icon 与浮层 */
+.eventdoc-icon{font-size:12px;opacity:.7;cursor:pointer;margin-left:4px}
+.eventdoc-icon:hover{opacity:1;color:var(--accent)}
+.eventdoc-text{display:inline-flex;align-items:center;gap:2px}
+.eventdoc{font-size:12px;line-height:1.65}
+.eventdoc p{margin:6px 0 0}
+.eventdoc-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .panel .ant-table{font-size:12px}
 .panel .ant-table-thead > tr > th{font-size:12px}
 @media(max-width:900px){

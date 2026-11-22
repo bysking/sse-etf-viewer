@@ -22,6 +22,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons'
 import { api, deleteApi, postApi, putApi } from './api.js'
+import { EventInfoText } from './components/EventInfo.jsx'
 
 const { Title, Text } = Typography
 
@@ -279,7 +280,7 @@ export function MonitorPage() {
 
   const signalColumns = [
     { title: '确认日', dataIndex: 'detectedAt', width: 108 },
-    { title: '事件', dataIndex: 'eventType', width: 88, render: (t) => <Tag color="blue">{t}</Tag> },
+    { title: '事件', dataIndex: 'eventType', width: 104, render: (t) => <EventInfoText type={t} /> },
     {
       title: '动作',
       dataIndex: 'action',

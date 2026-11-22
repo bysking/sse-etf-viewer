@@ -8,6 +8,7 @@ import { validateConfig } from '../shared/wyckoff/config.js'
 import { validateStrategyConfig, PHASES } from '../shared/strategy/validate.js'
 import { analyzeWyckoff, seriesToBars } from '../shared/wyckoff/analyzer.js'
 import { eventStudy } from '../shared/wyckoff/eventStudy.js'
+import { suggestWyckoffParams, DEFAULT_MIN_SAMPLES } from '../shared/wyckoff/recommend.js'
 import * as repo from './store/repositories.js'
 import { executeBacktest } from './backtest/service.js'
 import { sweepBacktest, rankRobust } from './backtest/sweep.js'
@@ -603,6 +604,56 @@ export function apiMiddleware() {
           })),
           last: analysis.states[analysis.states.length - 1] || null,
         })
+      }
+
+      // 参数推荐：用事件研究的历史样本给小范围网格打分，直接给建议阈值
+      if (url.pathname === '/api/research/param-suggest') {
+        if (method !== 'POST') throw bad('不支持的请求方法')
+        const body = await readJson(req)
+        const code = need(isCode(body.code) && String(body.code).trim(), '标的代码应为 6 位数字')
+        const end = isoDate(body.end || todayCST(), 'end')
+        const start = isoDate(body.start || addDays(end, -1826), 'start')
+        if (start > end) throw bad('开始日期不能晚于结束日期')
+
+        const wyckoffCfg = body.wyckoff && typeof body.wyckoff === 'object' ? body.wyckoff : {}
+        const errors = validateConfig(wyckoffCfg)
+        if (errors.length) throw new BadRequest(errors.join('；'))
+        const horizon = Number(body.horizon) || 10
+        if (!Number.isFinite(horizon) || horizon < 1 || horizon > 60) throw bad('horizon 应在 1–60 之间')
+        const minSamples = body.minSamples == null ? DEFAULT_MIN_SAMPLES : Number(body.minSamples)
+        if (!Number.isFinite(minSamples) || minSamples < 1 || minSamples > 100) throw bad('minSamples 应在 1–100 之间')
+        const minGain = body.minGain == null ? undefined : Number(body.minGain)
+        if (minGain != null && (!Number.isFinite(minGain) || minGain < 0 || minGain > 1)) throw bad('minGain 应在 0–1 之间')
+        const trainEnd = body.trainEnd ? isoDate(body.trainEnd, 'trainEnd') : undefined
+
+        // 与研究页/回测同一口径：默认前复权
+        const rawK = await getKline(code, start, end)
+        const k = body.adjust === 'none' ? rawK : applyAdjust(rawK, repo.listDividends(code, { onlyConfirmed: true }))
+        const bars = seriesToBars(k.series)
+        if (!bars.length) throw new NotFound('区间内没有日 K 数据')
+
+        let shares = null
+        if (body.includeShares) {
+          const s = await getShares(code, start, end)
+          shares = s.series.filter(([, v]) => v != null)
+        }
+
+        let out
+        try {
+          out = suggestWyckoffParams({
+            bars,
+            baseConfig: wyckoffCfg,
+            horizon,
+            trainEnd,
+            shares,
+            minSamples,
+            minGain,
+            groups: Array.isArray(body.groups) && body.groups.length ? body.groups : undefined,
+          })
+        } catch (e) {
+          throw new BadRequest(e.message)
+        }
+        return send(200, { code, start, end, adjust: k.adjust, ...out })
       }
 
       // ---------------- AI 助手 ----------------

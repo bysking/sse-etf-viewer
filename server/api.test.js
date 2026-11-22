@@ -340,6 +340,37 @@ test('AI 配置脱敏、测试连接与聊天', async () => {
   assert.equal(badCfg.status, 400)
 })
 
+test('参数推荐 API：校验参数并返回分组建议', async () => {
+  const badCode = await call('POST', '/api/research/param-suggest', { code: '123' })
+  assert.equal(badCode.status, 400)
+  assert.match(badCode.body.error, /6 位数字/)
+
+  const badHorizon = await call('POST', '/api/research/param-suggest', {
+    code: '510300',
+    start: '2024-01-01',
+    end: '2024-12-31',
+    horizon: 999,
+  })
+  assert.equal(badHorizon.status, 400)
+  assert.match(badHorizon.body.error, /horizon/)
+
+  const badCfg = await call('POST', '/api/research/param-suggest', {
+    code: '510300',
+    wyckoff: { swing: { atrMult: -1 } },
+  })
+  assert.equal(badCfg.status, 400)
+  assert.match(badCfg.body.error, /atrMult/)
+
+  const badTrainEnd = await call('POST', '/api/research/param-suggest', {
+    code: '510300',
+    start: '2025-01-01',
+    end: '2025-12-31',
+    trainEnd: '2025/07/01',
+  })
+  assert.equal(badTrainEnd.status, 400)
+  assert.match(badTrainEnd.body.error, /trainEnd/)
+})
+
 test('快速回测路由先于 /api/backtests/:id 匹配，并校验配置', async () => {
   const r = await call('POST', '/api/backtests/quick', {
     config: { symbol: '123', wyckoff: {} },

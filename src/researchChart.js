@@ -11,6 +11,7 @@ import {
   TooltipComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { EVENT_DOCS } from './wyckoffGlossary.js'
 
 echarts.use([
   CandlestickChart,
@@ -134,7 +135,11 @@ export function buildResearchOption({ bars = [], events = [], ranges = [], trade
           lines.push(
             '事件：' +
               evs
-                .map((e) => `<span style="color:${EVENT_COLORS[e.type] || '#fff'}">${e.type}</span>${e.occurredDate && e.occurredDate !== e.detectedDate ? `(发生 ${e.occurredDate})` : ''}`)
+                .map((e) => {
+                  const d = EVENT_DOCS[e.type]
+                  const tag = `<span style="color:${EVENT_COLORS[e.type] || '#fff'}">${e.type}${d ? ` ${d.label}` : ''}</span>`
+                  return `${tag}${e.occurredDate && e.occurredDate !== e.detectedDate ? `(发生 ${e.occurredDate})` : ''}`
+                })
                 .join(' / '),
           )
         }

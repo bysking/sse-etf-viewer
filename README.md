@@ -110,6 +110,8 @@ vite.config.js        挂载 @vitejs/plugin-react 与 server/api.js 中间件
 | `GET /api/dividends?code=` | 某标的的除息事件列表 |
 | `POST /api/dividends/detect` | 自动识别除息候选，入库为「待确认」 |
 | `POST /api/dividends/confirm` | 人工确认/取消除息事件（确认后才参与复权） |
+| `POST /api/research/events` | 跑 Wyckoff 事件识别 + 事件研究，返回事件、区间、逐日状态 |
+| `POST /api/research/param-suggest` | **参数推荐**：用事件研究样本给每个事件分组打分，返回建议阈值（`minSamples` / `minGain` / `trainEnd` 可调） |
 
 ## 说明
 
